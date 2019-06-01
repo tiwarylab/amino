@@ -13,7 +13,6 @@ Contributor: Pablo Bravo Collado        ptbravo@uc.cl"""
 import numpy as np
 import scipy.optimize as opt
 from scipy import signal
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 
@@ -206,28 +205,6 @@ def biased_prob(rc,old_rc, data_array):
         prob[binned[i]]+=1/bias_prob[bias_bin[i]] # Dividing by RAVE-like weights
 
     return prob/prob.sum()   # Normalize
-
-
-
-def best_plot():
-    # Displays the best RC for 2D data
-    best_rc=np.ceil(np.arccos(RC[np.argmax(SG)][0])*180/np.pi)
-    plt.figure()
-    cmap=plt.cm.get_cmap("jet")
-    hist = np.histogram2d(data_array[:,0],data_array[:,1],100)
-    hist = hist[0]
-    prob = hist/np.sum(hist)
-    potE=-np.ma.log(prob)
-    potE-=np.min(potE)
-    np.ma.set_fill_value(potE,np.max(potE))
-    plt.contourf(np.transpose(np.ma.filled(potE)),cmap=cmap)
-
-    plt.title('Best RC = {0:.2f} Degrees'.format(best_rc))
-    origin=[50,50]
-    rcx=np.cos(np.pi*best_rc/180)
-    rcy=np.sin(np.pi*best_rc/180)
-    plt.quiver(*origin,rcx,rcy,scale=.1,color='grey');
-    plt.quiver(*origin,-rcx,-rcy,scale=.1,color='grey');
 
 
 

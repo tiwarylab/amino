@@ -1,12 +1,27 @@
 import subprocess
 import numpy as np
+import sgoop
+import scipy.optimize as opt
+import time
+import random
 
 gro_file = "npt.gro"
 traj_file = "md1.xtc"
 plumed_file = "input.plu"
 tmp_colvar = ".colvar"
+shell_file = "plumed.log"
 bashCommand = "plumed driver --plumed " + plumed_file + " --mf_xtc " + traj_file
 rmCommand = "rm bck.*." + tmp_colvar
+
+class OrderParameter:
+
+    def __init__(self, i, j, traj):
+        self.i = i
+        self.j = j
+        self.traj = traj
+
+    def __str__(self):
+        return str(self.i) + " " + str(self.j)
 
 # Parse through .gro file and returns array of alpha carbons
 def find_alpha_carbons(gro_file):
@@ -90,7 +105,7 @@ def mutual_info(x, y, bins = 100):
                 entropy -= p_xy[i][j] * np.log(p_xy[i][j])
                 info += p_xy[i][j] * np.log(p_xy[i][j] / (p_x[i] * p_y[j]))
 
-    return info / entropy
+    return (1 - (info / entropy))
 
 # Finds the number of local maxima in a noisy probability distribution
 def find_wells(prob):
@@ -124,73 +139,154 @@ def find_wells(prob):
 
     return wells
 
-class OrderParameter:
+def opti_func(rc):
+    global nfev, data_array
+    nfev +=1
+    return -sgoop.rc_eval(rc, data_array)
 
-    def __init__(self, i, j, traj):
-        self.i = i
-        self.j = j
-        self.traj = traj
+def print_fun(x, f, accepted):
+    global now,last,nfev,lastf
+    now=time.time()
+    #print(x,end=' ')
+    #if accepted == 1:
+    #    print("with spectral gap %.4f accepted after %3i runs (%.3f)" % (-f, nfev-lastf, now-last))
+    #else:
+    #    print("with spectral gap %.4f declined after %3i runs (%.3f)" % (-f, nfev-lastf, now-last))
+    last=now
+    lastf=nfev
 
-class SimilarityMatrix:
+def initial_guess(wells, num_ops, data_array):
 
-    def __init__(self, max_OPs):
-        self.max_OPs = max_OPs
-        self.matrix = [[] for i in range(max_OPs)]
-        self.OPs = []
+    x = [-1 for i in range(num_ops)]
+    finished = [1 for i in range(num_ops)]
+    rc = x
+    max_val = 0
+    sgoop.wells = wells
 
-    def add_OP(self, OP):
-        if len(self.OPs) == self.max_OPs:
-            mut_info = []
-            existing = []
-            for i in range(len(self.OPs)):
-                mut_info.append(mutual_info(self.OPs[i].traj, OP.traj))
-                existing.append(sum(self.matrix[i]) - self.matrix[i][i])
-            candidate_info = sum(mut_info)
-            update = False
-            difference = 0
-            for i in range(len(self.OPs)):
-                candidate_info = sum(mut_info) - mut_info[i]
-                if candidate_info < existing[i]:
-                    update = True
-                    if difference == 0:
-                        difference = existing[i] - candidate_info
-                        old_OP = i
-                    else:
-                        if (existing[i] - candidate_info) < difference:
-                            difference = existing[i] - candidate_info
-                            old_OP = i
-            if update == True:
-                mut_info[old_OP] = mutual_info(OP.traj, OP.traj)
-                self.matrix[old_OP] = mut_info
-                self.OPs[old_OP] = OP
-                for i in range(len(self.OPs)):
-                    self.matrix[i][old_OP] = mut_info[i]
-        else:
-            for i in range(len(self.OPs)):
-                mut_info = mutual_info(OP.traj, self.OPs[i].traj)
-                self.matrix[i].append(mut_info)
-                self.matrix[len(self.OPs)].append(mut_info)
-            self.matrix[len(self.OPs)].append(mutual_info(OP.traj, OP.traj))
-            self.OPs.append(OP)
+    while not x == finished:
 
+        tmp = sgoop.rc_eval(x, data_array)
+        if tmp > max_val:
+            max_val = tmp
+            rc = x.copy()
+
+        for i in range(num_ops):
+            if x[num_ops - 1 - i] == -1:
+                x[num_ops - 1 - i] = 1
+                break;
+            else:
+                x[num_ops - 1 - i] = -1
+
+    tmp = sgoop.rc_eval(x, data_array)
+    if tmp > max_val:
+        max_val = tmp
+        rc = x.copy()
+
+    return rc
+
+def find_ops(old_ops, max_outputs=-1, min_val=-1):
+    if max_outputs == -1 and min_val == -1:
+        raise Exception("You\'re using find_ops wrong. No reduction will be done.'")
+    elif max_outputs < 2:
+        max_outputs = len(old_ops)
+    elif min_val == -1:
+        min_val = 0
+    most = 0
+    vals = [0, 0]
+    for i in range(len(old_ops)):
+        for j in range(i + 1, len(old_ops)):
+            tmp = mutual_info(old_ops[i].traj, old_ops[j].traj)
+            if tmp > most:
+                most = tmp
+                vals = [i, j]
+
+    new_ops = [old_ops[vals[0]], old_ops[vals[1]]]
+
+    info_check = True
+
+    while ((len(new_ops) < max_outputs) and (info_check)):
+
+        print("ITERATION:")
+        for i in new_ops:
+            print(i)
+        print("FIN")
+        print()
+        global data_array
+        data_array = []
+        for i in range(len(new_ops[0].traj)):
+            x = [j.traj[i] for j in new_ops]
+            data_array.append(x.copy())
+        consistent = True
+        candidate_wells = 2
+
+        while (consistent == True):
+
+            print("Testing " + str(candidate_wells) + " wells")
+
+            global nfev, lastf, last
+
+            guess = initial_guess(candidate_wells, len(new_ops), data_array)
+
+            sgoop.wells = candidate_wells
+            start = time.time()
+            last = start
+            lastf = nfev = 0
+            minimizer_kwargs = {"options": {"maxiter":10}}
+            ret = opt.basinhopping(opti_func,guess,niter=100,T=.01,stepsize=.1, minimizer_kwargs=minimizer_kwargs, callback=print_fun)
+            end = time.time()
+            prob_space = sgoop.md_prob(ret.x, data_array)
+
+            if (find_wells(prob_space) >= candidate_wells):
+                print(str(candidate_wells) + " well runs accepted. Testing " + str(candidate_wells + 1) + " well RC.")
+                rc = ret.x.copy()
+                candidate_wells = candidate_wells + 1
+            else:
+                print(str(candidate_wells) + " well runs failed. Reverting to previous RC.")
+                if candidate_wells == 2:
+                    rc = ret.x.copy()
+                consistent = False
+
+        proj = []
+        for v in data_array:
+            proj.append(np.dot(np.array(v),rc))
+        most = 0
+        newest_op = None
+
+        for i in old_ops:
+            exists = False
+            for j in new_ops:
+                if i.i == j.i and i.j == j.j:
+                    exists = True
+                    break;
+            if exists == True:
+                continue;
+            tmp = mutual_info(i.traj, proj)
+            if tmp > most:
+                most = tmp
+                newest_op = i
+        if most > min_val:
+            new_ops.append(newest_op)
+
+    return new_ops
+
+plumed_log = open(shell_file, "w+")
 alpha_carbons = find_alpha_carbons(gro_file)
-matrix = SimilarityMatrix(12)
-f = open(plumed_file, "w+")
-print_line = "PRINT ARG="
+all_ops = []
 
 for i in range(len(alpha_carbons)):
     print(i)
+    f = open(plumed_file, "w+")
     for j in range(i + 1, len(alpha_carbons)):
-        f.write("d" + str(alpha_carbons[i]) + "_" + str(alpha_carbons[j]) + ": DISTANCE ATOMS=" + str(alpha_carbons[i]) + "," + str(alpha_carbons[j]) + "\n")
-        print_line = print_line + "d" + str(alpha_carbons[i]) + "_" + str(alpha_carbons[j]) + ","
+        f.write("d" + str(j) + ": DISTANCE ATOMS=" + str(alpha_carbons[i]) + "," + str(alpha_carbons[j]) + "\n")
+    f.write("PRINT ARG=")
+    for j in range(i + 1, len(alpha_carbons)):
+        f.write("d" + str(j))
+        if j != len(alpha_carbons) - 1:
+            f.write(",")
+    f.write(" FILE=" + tmp_colvar + " STRIDE=1")
+    f.close()
+    process = subprocess.call(bashCommand.split(), stdout = plumed_log, shell = True)
 
-print_line = print_line[:-1]
-print_line = print_line + " FILE=" + tmp_colvar + " STRIDE=1"
-f.write(print_line)
-f.close()
-process = subprocess.call(bashCommand.split())
-
-'''
     f = open(tmp_colvar, "r")
     f.readline()
     paths = [[] for counter in range(len(alpha_carbons) - i - 1)]
@@ -202,18 +298,15 @@ process = subprocess.call(bashCommand.split())
     counter = i + 1
 
     for path in paths:
-        prob = d1_bin(path)
+        prob = d1_bin(path, bins=20)
         if find_wells(prob) > 1:
             OP = OrderParameter(alpha_carbons[i], alpha_carbons[counter], path)
-            matrix.add_OP(OP)
+            all_ops.append(OP)
         counter = counter + 1
 
-    process = subprocess.call(rmCommand.split())
+    process = subprocess.call(rmCommand.split(), shell = True)
 
-print("ORDER PARAMETERS")
-for i in matrix.OPs:
-    print(str(i.i) + " " + str(i.j))
-
-print("\nSIMILARITY MATRIX")
-print(matrix.matrix)
-'''
+new_ops = find_ops(all_ops, max_outputs=5)
+print("HERE ARE THE SELECTED OPS:")
+for i in new_ops:
+    print(i)

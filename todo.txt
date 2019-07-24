@@ -1,7 +1,3 @@
-redo selection of OP's
-SGOOP on new OP'S
-start unbiased run
 start biased run
 alanine dipeptide paper
 update codebase for publishing
-machine learning

@@ -1,6 +1,3 @@
 alanine dipeptide paper
 update codebase for publishing
-
-JOBS:
-unbiased - scheduled to finish saturday, july 27
-biased - still in queue
+review paper

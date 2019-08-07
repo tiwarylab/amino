@@ -68,27 +68,20 @@ def generate_rc(i):
 
 
 
-def md_prob(rc):
+def md_prob(rc,rc_bin=20,show_binned=False):
     # Calculates probability along a given RC
-    global binned
-    proj=[]
+    proj=np.dot(data_array,rc)
+    hist,bins=np.histogram(proj,rc_bin)
+    hist=hist/np.sum(hist)
     
-    for v in data_array:
-        proj.append(np.dot(v,rc))
-    rc_min=np.min(proj)
-    rc_max=np.max(proj)
-    binned=(proj-rc_min)/(rc_max-rc_min)*(rc_bin-1)
-    binned=np.array(binned).astype(int)
-    
-    prob=np.zeros(rc_bin)
-    
-    for point in binned:
-        prob[point]+=1
-        
-    return prob/prob.sum()   # Normalize
+    if show_binned:
+        binned=np.digitize(proj,bins[:-1])-1 
+        return hist,binned
+    else:
+        return hist
 
 
-
+    
 def set_bins(rc,bins,rc_min,rc_max):  
     # Sets bins from an external source
     global binned, rc_bin
@@ -96,17 +89,6 @@ def set_bins(rc,bins,rc_min,rc_max):
     proj = np.dot(data_array,rc)
     binned=(proj-rc_min)/(rc_max-rc_min)*(rc_bin-1)
     binned=np.array(binned).astype(int)
-
-
-
-def clean_whitespace(p): 
-    # Removes values of imported data that do not match MaxCal data
-    global rc_bin, binned
-    bmin = np.min(binned)
-    bmax = np.max(binned)
-    rc_bin = bmax - bmin + 1
-    binned -= bmin
-    return p[bmin:bmax+1]
 
 
 
@@ -126,20 +108,14 @@ def mu_factor(binned,p):
     # Returns the mu factor associated with the RC
     # NOTE: mu factor depends on the choice of RC!
     # <N>, number of neighbouring transitions on each RC
-    J = 0
-    N_mean = 0
-    D = 0
-    for I in binned:
-        N_mean += (np.abs(I-J) <= d)*1
-        J = np.copy(I)
-    N_mean = N_mean/len(binned)
+    D=0
+    N_mean = np.sum(np.abs(binned[:-1]-binned[1:]) <= d)/len(binned)
 
-    # Denominator
-    for j in range(rc_bin):
-        for i in range(rc_bin):
-            if (np.abs(i-j) <= d) and (i != j):
-                    D += np.sqrt(p[j]*p[i])
+    for i in np.array(range(d))+1:
+        D += np.sum(np.sqrt(p[:-i]*p[i:]))*2
+
     MU = N_mean/D
+
     return MU
 
 
@@ -147,16 +123,14 @@ def mu_factor(binned,p):
 def transmat(MU,p):
     # Generates transition matrix
     S = np.zeros([rc_bin, rc_bin])
-    # Non diagonal terms
-    for j in range(rc_bin):
-        for i in range(rc_bin):
-            if (p[i] != 0) and (np.abs(i-j) <= d and (i != j)) :
-                S[i, j] = MU*np.sqrt(p[j]/p[i])
+    for step in np.array(range(d))+1: # terms <= d from diagonal
+        i=np.linspace(0,rc_bin-step-1,rc_bin-step).astype('int')
+        j=i+step
+        S[i,j] = -MU * np.sqrt(np.ma.divide(p[i],p[j]))
+        S[j,i] = -MU * np.sqrt(np.ma.divide(p[j],p[i]))
 
-    for i in range(rc_bin):
-        S[i,i] = -S.sum(1)[i]  # Diagonal terms
-    S = -np.transpose(S)      # Tranpose and fix 
-    
+    S[np.diag_indices(rc_bin)] = -np.sum(S,axis=0) # Diagonal terms
+     
     return S
 
 
@@ -173,7 +147,7 @@ def spectral():
 
 
 
-def sgoop(rc,p):
+def sgoop(rc,p,binned):
     # SGOOP for a given probability density on a given RC
     # Start here when using probability from an external source
     MU = mu_factor(binned,p) # Calculated with MaxCal approach
@@ -192,48 +166,37 @@ def sgoop(rc,p):
 
 
 
-def biased_prob(rc,old_rc):
-    # Calculates probabilities while "forgetting" original RC
-    global binned
-    bias_prob=md_prob(old_rc)
-    bias_bin=binned
+def biased_prob(rc,bias_rcs,rc_bin=20,show_binned=False):
+    # calculates the probability along a given RC conditional on the probability along a given set of RCs
+    bias_rcs=np.array(bias_rcs)
+
+    if np.shape(np.shape(bias_rcs))[0]==1:
+        bias_rcs = np.array(bias_rcs).reshape(1,np.shape(bias_rcs)[0])
+
+    dim = np.shape(bias_rcs)[0]
+
+    bias_prob=np.zeros((dim,rc_bin))
+    bias_binned=np.zeros((dim,np.shape(data_array)[0]))
+
+
+    for i in range(dim):
+        bias_prob[i,:],bias_binned[i,:]=md_prob(bias_rcs[i,:],show_binned=True)
+
+    point_probs=np.zeros(np.shape(bias_binned))
+
+    for i in range(np.shape(point_probs)[0]):
+        point_probs[i,:]=bias_prob[i,:][bias_binned[i,:].astype('int')]
+    point_bias=1/np.product(point_probs,axis=0)
+
+    proj=np.dot(data_array,rc)
+    hist,bins=np.histogram(proj,rc_bin,weights=point_bias)
+    hist=hist/np.sum(hist)
     
-    proj=[]
-    for v in data_array:
-        proj.append(np.dot(v,rc))
-    rc_min=np.min(proj)
-    rc_max=np.max(proj)
-    binned=(proj-rc_min)/(rc_max-rc_min)*(rc_bin-1)
-    binned=np.array(binned).astype(int)
-    
-    prob=np.zeros(rc_bin)
-    
-    for i in range(np.shape(binned)[0]):
-        prob[binned[i]]+=1/bias_prob[bias_bin[i]] # Dividing by RAVE-like weights
-        
-    return prob/prob.sum()   # Normalize
-
-
-
-def best_plot():
-    # Displays the best RC for 2D data
-    best_rc=np.ceil(np.arccos(RC[np.argmax(SG)][0])*180/np.pi)
-    plt.figure()
-    cmap=plt.cm.get_cmap("jet")
-    hist = np.histogram2d(data_array[:,0],data_array[:,1],100)
-    hist = hist[0]
-    prob = hist/np.sum(hist)
-    potE=-np.ma.log(prob)
-    potE-=np.min(potE)
-    np.ma.set_fill_value(potE,np.max(potE))
-    plt.contourf(np.transpose(np.ma.filled(potE)),cmap=cmap)
-
-    plt.title('Best RC = {0:.2f} Degrees'.format(best_rc))
-    origin=[50,50]
-    rcx=np.cos(np.pi*best_rc/180)
-    rcy=np.sin(np.pi*best_rc/180)
-    plt.quiver(*origin,rcx,rcy,scale=.1,color='grey');
-    plt.quiver(*origin,-rcx,-rcy,scale=.1,color='grey');
+    if show_binned:
+        binned=np.digitize(proj,bins[:-1])-1 
+        return hist,binned
+    else:
+        return hist
 
 
 
@@ -246,17 +209,17 @@ def rc_eval(rc):
     RC.append(rc)
 
     """Probabilities and Index on RC"""
-    prob=md_prob(rc)
+    prob,binned=md_prob(rc,show_binned=True)
     P.append(prob)
 
     """Main SGOOP Method"""
-    sg = sgoop(rc,prob)
+    sg = sgoop(rc,prob,binned)
     
     return sg
 
 
 
-def biased_eval(rc,bias_rc):
+def biased_eval(rc,bias_rcs):
     # Biased SGOOP on a given RC with bias along a second RC
     # Input type: array of weights, probability from original RC
     
@@ -265,11 +228,11 @@ def biased_eval(rc,bias_rc):
     RC.append(rc)
 
     """Probabilities and Index on RC"""
-    prob=biased_prob(rc,bias_rc)
+    prob,binned=biased_prob(rc,bias_rcs,show_binned=True)
     P.append(prob)
 
     """Main SGOOP Method"""
-    sg = sgoop(rc,prob)
+    sg = sgoop(rc,prob,binned)
     
     return sg
 

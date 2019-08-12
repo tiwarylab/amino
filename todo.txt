@@ -1,4 +1,2 @@
 reweight biased thermo runs
 make gibbs plots
-data for plots (zack)
-aladip

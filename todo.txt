@@ -1,0 +1,3 @@
+get numpy save file from marcc
+re-write unbiased gibbs energy
+write reweight for biased

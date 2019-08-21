@@ -1,5 +1,4 @@
 Outside of Paper
-free energy plot
 rc val over trajectory (unbiased and biased)
 resubmit unbiased and biased runs for fkbp/but
 make good image of fkbp/but system
@@ -8,7 +7,10 @@ calculate other run data
 
 
 In Paper
+change above below stuff
 change figures to tables where possible
+update figures to zack settings
+free energy plot
 refer to algorithm number instead of dissimilarity matrix construction and clustering
 keep upper or lower case on dissimilarity and matrix consistent
 update aladip references to be cut completely

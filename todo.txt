@@ -1,13 +1,13 @@
 Outside of Paper
 make good image of fkbp/but system
+ligand image with carbon labels
 dissimilarity matrix heat plot
+calculate other run data
 
 
 In Paper
+look over new results stuff
+rewrite 10 OP model system section
 update FKBP/BUT OP's
-update SGOOP figure
-update figures to zack settings
+look over unbiased and biased rc trajectories (seems super messed up)
 mention full form of BUT like [they] did in praminik, smith, et all JPCB
-
-Tomorrow:
-calculate other run data

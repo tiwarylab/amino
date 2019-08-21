@@ -1,21 +1,13 @@
 Outside of Paper
-rc val over trajectory (unbiased and biased)
-resubmit unbiased and biased runs for fkbp/but
 make good image of fkbp/but system
 dissimilarity matrix heat plot
-calculate other run data
 
 
 In Paper
-change above below stuff
-change figures to tables where possible
+update FKBP/BUT OP's
+update SGOOP figure
 update figures to zack settings
-free energy plot
-refer to algorithm number instead of dissimilarity matrix construction and clustering
-keep upper or lower case on dissimilarity and matrix consistent
-update aladip references to be cut completely
 mention full form of BUT like [they] did in praminik, smith, et all JPCB
-cite below link for delta g for fkbp/but
-https://slack-redir.net/link?url=https%3A%2F%2Fpubs.acs.org%2Fdoi%2Fabs%2F10.1021%2Facs.jctc.7b00172
-cite below and say amino+sgoop+metadynamics could be futher complemented by funnel metadynamics to speed up re-entry
-https://slack-redir.net/link?url=https%3A%2F%2Fwww.pnas.org%2Fcontent%2F110%2F16%2F6358
+
+Tomorrow:
+calculate other run data

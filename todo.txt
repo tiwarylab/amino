@@ -1,6 +1,2 @@
 Outside of Paper
 make good image of fkbp/but system
-dissimilarity matrix heat plot
-
-In paper
-Review stuff

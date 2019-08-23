@@ -1,3 +1,1 @@
-make good image of fkbp/but system
-overleaf edits
-The RC vs time plots need to be put together, with same axes range so we one can clearly see whats going on. you want to show how metadynamics dissociates quickly the 1st time and other times
+check for ??

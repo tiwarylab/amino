@@ -9,7 +9,7 @@ The goal of AMINO is to correctly determine the number of order parameters in th
 
 ## model_output.ipynb
 
-This Jupyter notebook file just outputs the names of the order parameters that OPAF selects. The provided code runs the 5 and 10 order parameter model systems. The system with 5 original order parameters begins with a total of 62 order parameters, and the 10 order parameter model system begins with 120 order parameters. Any custom analytical system can be built for testing using the provided helper functions.
+This Jupyter notebook file just outputs the names of the order parameters that AMINO selects. The provided code runs the 5 and 10 order parameter model systems. The system with 5 original order parameters begins with a total of 62 order parameters, and the 10 order parameter model system begins with 120 order parameters. Any custom analytical system can be built for testing using the provided helper functions.
 
 ## model_detailed.ipynb
 

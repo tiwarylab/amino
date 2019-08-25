@@ -13,4 +13,4 @@ Of the provided applications, this is the most similar to a practical use of AMI
 
 ## src
 
-This is the final, ready-to-use version of OPAF that takes as input a COLVAR corresponding to some set of order parameters and outputs a "reduced" COLVAR that only contains the order parameters selected by AMINO.
+This is the final, ready-to-use version of AMINO that takes as input a COLVAR corresponding to some set of order parameters and outputs a "reduced" COLVAR that only contains the order parameters selected by AMINO.

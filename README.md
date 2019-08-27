@@ -12,6 +12,6 @@ This directory contains two analytical model systems that were used for initial 
 Of the provided applications, this is the most similar to a practical use of AMINO. Input data is from a short unbiased MD simulation of the FKBP/BUT protein-ligand system. In practice, applications of AMINO should resemble the code provided in this directory. It is important to note that since this is a realistic application, a single run can take around 20-30 minutes, depending on your system.
 
 ## src (INCOMPLETE)
-Expected Finish Date: 8/26/19
+Expected Finish Date: 8/30/19
 
 This is the final, ready-to-use version of AMINO that takes as input a COLVAR corresponding to some set of order parameters and outputs a "reduced" COLVAR that only contains the order parameters selected by AMINO.

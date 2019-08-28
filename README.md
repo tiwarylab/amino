@@ -14,3 +14,6 @@ Of the provided applications, this is the most similar to a practical use of AMI
 ## src
 
 This is the final, ready-to-use version of AMINO. In this directory, there is a script that takes in a COLVAR and outputs the order parameters selected by AMINO, as well as a complete Python 3 implementation of all of the functions used in AMINO.
+
+## amino.py
+This is the Python 3 file mentioned above (from the src directory) that contains the function definitions used in AMINO.

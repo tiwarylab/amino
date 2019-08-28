@@ -1,7 +1,5 @@
 import numpy as np
-import random
 import copy
-import sys
 
 class OrderParameter:
 
@@ -321,34 +319,3 @@ def find_ops(old_ops, max_outputs):
         matrix.reduce()
 
     return cluster(old_ops, matrix.OPs, mut)
-
-filename = sys.argv[1]
-
-colvar = open(filename)
-split = colvar.readline().split()
-names = []
-trajs = {}
-
-if '-n' in sys.argv:
-    num = int(sys.argv[sys.argv.index('-n') + 1])
-else:
-    num = len(split) - 3
-
-if num > 30 and '--override' not in sys.argv:
-    num = 30
-
-for i in range(3, len(split)):
-    names.append(split[i])
-    trajs[split[i]] = []
-
-for line in colvar:
-    timestep = line.split()
-    for i in range(len(timestep) - 1):
-        trajs[names[i]].append(float(timestep[i + 1]))
-
-ops = [OrderParameter(i, trajs[i]) for i in names]
-
-final_ops = find_ops(ops, 30)
-
-for i in final_ops:
-    print(i)

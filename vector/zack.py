@@ -29,28 +29,6 @@ def distortion(centers, ops, mut): '''PARALLEL'''
         dis = dis + (min_val * min_val)
     return 1 + (dis ** (0.5))
 
-def arithmetic_mean(centers, ops, mut): '''PARALLEL'''
-    mean = 0.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.iqr(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        mean = mean + min_val
-    return (mean / (len(ops)))
-
-def geometric_mean(centers, ops, mut): '''PARALLEL'''
-    mean = 1.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.iqr(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        mean = mean * (min_val ** (1.0 / len(ops)))
-    return mean
-
 class DissimilarityMatrix:
 
     def __init__(self, max_OPs, mut):
@@ -115,20 +93,6 @@ class DissimilarityMatrix:
         for i in range(len(self.matrix)):
             self.matrix[i].pop(index)
         self.OPs.pop(index)
-
-    def min_product(self): '''PARALLEL'''
-        min_val = 10
-        for i in range(len(self.matrix)):
-            product = 1
-            for j in range(len(self.matrix[i])):
-                if not i == j:
-                    product = product * self.matrix[i][j]
-            if product < min_val:
-                min_val = product
-        return min_val
-
-    def get_OPs(self):
-        return self.OPs
 
     def __str__(self): '''PARALLEL'''
         output = ""

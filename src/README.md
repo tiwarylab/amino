@@ -1,13 +1,27 @@
 # src
 
-This directory contains the source code for a Python 3 script that runs AMINO. To use the script, run
+This directory contains the source codes for two Python 3 scripts that run AMINO. These scripts will ignore the first column since this is usually the time column. If you have removed the time column manually (or have modified the COLVAR in some other form), you should modify the script to suit your specific needs.
+
+## amino_output.py
 
 ```text
-python3 amino.py <COLVAR> -o -n <num>
+python3 amino_output.py <COLVAR> -n <num>
 ```
 
 where <COLVAR> is the name of the COLVAR file that you want to reduce. The -n flag can be used to specify a maximum number of order parameters in the reduced COLVAR. If no number is provided as input, the default value is 30 or the total number of order parameters in the provided <COLVAR> (whichever is smaller).
 
 The output contains the names of the order parameters (as they were named in the COLVAR) that AMINO has selected. The output is printed to the command line.
+
+AMINO will use a maximum number of output order parameters of 30, but if you would like to override this requirement, you can use '--override' to use the number of order parameters specified by the -n flag.
+
+## amino.py
+
+```text
+python3 amino.py <COLVAR> -o <NEW_COLVAR> -n <num>
+```
+
+where <COLVAR> is the name of the COLVAR file that you want to reduce and <NEW_COLVAR> is the name of the new COLVAR that you would like AMINO to write. The -n flag can be used to specify a maximum number of order parameters in the reduced COLVAR. If no number is provided as input, the default value is 30 or the total number of order parameters in the provided <COLVAR> (whichever is smaller).
+
+The output is a COLVAR file (named whatever you specified <NEW_COLVAR> to be) that only contains the values of the order parameters that AMINO selected.
 
 AMINO will use a maximum number of output order parameters of 30, but if you would like to override this requirement, you can use '--override' to use the number of order parameters specified by the -n flag.

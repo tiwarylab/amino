@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import copy
 
 class OrderParameter:
@@ -144,56 +145,30 @@ class DissimilarityMatrix:
 
 def d1_bin(x, bins = 80):
 
-    min_val = np.amin(x)
-    max_val = np.amax(x)
-    span = max_val - min_val
+    p_x, _ = np.histogram(x, bins=bins)
+    return p_x / np.sum(p_x)
 
-    p_x = [0.0 for i in range(bins)]
-
-    for i in x:
-        bin_num = (int) (bins * (i - min_val) / span)
-        if bin_num == bins:
-            bin_num -= 1
-        p_x[bin_num] += 1.0 / len(x)
-
-    return p_x
-
-def d2_bin(x, y, bins = 80):
+def d2_bin(x, y, bins = 50):
 
     if len(x) != len(y):
         raise Exception("Order parameter lists are of different size.")
 
-    min_x = np.amin(x)
-    max_x = np.amax(x)
-    span_x = max_x - min_x
-
-    min_y = np.amin(y)
-    max_y = np.amax(y)
-    span_y = max_y - min_y
-
-    p_xy = [[0.0 for i in range(bins)] for j in range(bins)]
-
-    for i in range(len(x)):
-        bin_x = (int) (bins * (x[i] - min_x) / span_x)
-        bin_y = (int) (bins * (y[i] - min_y) / span_y)
-        if bin_x == bins:
-            bin_x -= 1
-        if bin_y == bins:
-            bin_y -= 1
-        p_xy[bin_x][bin_y] += 1.0 / len(x)
-
-    return p_xy
+    p_xy, _, _ = np.histogram2d(x, y, bins=bins)
+    return p_xy / np.sum(p_xy)
 
 class Memoizer:
 
-    def __init__(self):
+    def __init__(self, bins):
         self.memo = {}
-        self.bins = 80
+        self.bins = bins
 
     def iqr(self, OP1, OP2):
-        index = str(OP1.name) + " " + str(OP2.name)
-        if index in self.memo:
-            return self.memo[index]
+        index1 = str(OP1.name) + " " + str(OP2.name)
+        index2 = str(OP2.name) + " " + str(OP1.name)
+        if index1 in self.memo:
+            return self.memo[index1]
+        elif index2 in self.memo:
+            return self.memo[index2]
         else:
             x = OP1.traj
             y = OP2.traj
@@ -204,17 +179,16 @@ class Memoizer:
             info = 0
             entropy = 0
 
-            for i in range(len(p_x)):
-                for j in range(len(p_y)):
-                    if p_xy[i][j] != 0:
-                        entropy -= p_xy[i][j] * np.log(p_xy[i][j])
-                        info += p_xy[i][j] * np.log(p_xy[i][j] / (p_x[i] * p_y[j]))
+            entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
+            p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
+            info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
 
             if ((1 - (info / entropy)) < 0):
                 output = 0.0
             else:
                 output = (1 - (info / entropy))
-            self.memo[index] = output
+
+            self.memo[index1] = output
             return output
 
     def __str__(self):
@@ -261,16 +235,18 @@ def cluster(ops, seeds, mut):
 
     return centers
 
-def find_ops(old_ops, max_outputs):
+def find_ops(old_ops, max_outputs, bins, jump_filename=None):
 
-    mut = Memoizer()
+    mut = Memoizer(bins)
     matrix = DissimilarityMatrix(max_outputs, mut)
 
+    print("Building dissimilarity matrix...")
     for i in old_ops:
         matrix.add_OP(i)
 
     for i in old_ops[::-1]:
         matrix.add_OP(i)
+    print("Done dissimilarity matrix construction...")
 
     tmp = copy.deepcopy(matrix)
     distortion_array = []
@@ -278,6 +254,7 @@ def find_ops(old_ops, max_outputs):
     str_num_array = []
 
     while (len(tmp.OPs) > 0):
+        print("Checking " + str(len(tmp.OPs)) + " order parameters...")
         num_array.append(len(tmp.OPs))
         str_num_array.append(str(len(tmp.OPs)))
         seed = []
@@ -314,6 +291,9 @@ def find_ops(old_ops, max_outputs):
                 min_index = i
         if num_array[min_index] > num_ops:
             num_ops = num_array[min_index]
+
+    if not jump_filename == None:
+        np.save(jump_filename, all_jumps)
 
     while (len(matrix.OPs) > num_ops):
         matrix.reduce()

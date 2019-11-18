@@ -1,15 +1,15 @@
 # AMINO - Automatic Mutual Information Noise Omission
-An algorithm that reduces a large dictionary of order parameters to a smaller set of order parameters by screening for redundancy using a mutual information based distance metric. [Here](https://www.biorxiv.org/content/biorxiv/early/2019/08/24/745968.full.pdf) is a link to the biorxiv paper.
+An algorithm that reduces a large dictionary of order parameters to a smaller set of order parameters by screening for redundancy using a mutual information based distance metric.
 
 Overviews of each of the subdirectories in this repository are provided below. For detailed descriptions of the files within the subdirectories, refer to the README's within each subdirectory.
 
-## ModelSystems
+## ModelSystems.ipynb
 
-This directory contains two analytical model systems that were used for initial testing of AMINO. The code for the algorithm is the same as for experimental systems, but the input order parameters used are generated internally, rather than from a COLVAR as it would in a real system. It is provided to help users gain an intuition for how the algorithm works.
+This file contains two analytical model systems that were used for initial testing of AMINO. The input order parameters used are generated internally, rather than from a COLVAR as it would in a real system. It is provided to help users gain an intuition for how the algorithm works on a simple synthetic system.
 
-## BUT
+## BUT.ipynb
 
-Of the provided applications, this is the most similar to a practical use of AMINO. Input data is from a short unbiased MD simulation of the FKBP/BUT protein-ligand system. In practice, applications of AMINO should resemble the code provided in this directory. It is important to note that since this is a realistic application, a single run can take around 20-30 minutes, depending on your system.
+Of the provided applications, this is the most similar to a practical use of AMINO. Input data is from a short unbiased MD simulation of the FKBP/BUT protein-ligand system that can be found in the `data` directory. In practice, applications of AMINO should resemble the code provided in this directory.
 
 ## src
 
@@ -17,8 +17,18 @@ This is the final, ready-to-use version of AMINO. In this directory, there is a 
 
 ## amino.py
 
-This is the Python 3 file mentioned above (from the src directory) that contains the function definitions used in AMINO.
+This is the complete Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.
 
-## vector
+## amino_output.py
 
-This directory is a work in progress towards vectorizing computations to make them run faster. Ignore this folder until this README changes.
+```text
+python3 amino_output.py <COLVAR> -n <num> -b <bins>
+```
+
+where <COLVAR> is the name of the COLVAR file that you want to reduce. The -n flag can be used to specify a maximum number of order parameters in the reduced COLVAR. If no number is provided as input, the default value is 20 or the total number of order parameters in the provided <COLVAR> (whichever is smaller) if the `-n` flag is omitted.
+
+The default value for bins if the `-b` flag is omitted is 50.
+
+The output contains the names of the order parameters (as they were named in the COLVAR) that AMINO has selected. The output is printed to the command line.
+
+AMINO will use a maximum number of output order parameters of 20, but if you would like to override this requirement, you can use '--override' to use the number of order parameters specified by the -n flag.

@@ -30,28 +30,6 @@ def distortion(centers, ops, mut):
         dis = dis + (min_val * min_val)
     return 1 + (dis ** (0.5))
 
-def arithmetic_mean(centers, ops, mut):
-    mean = 0.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.iqr(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        mean = mean + min_val
-    return (mean / (len(ops)))
-
-def geometric_mean(centers, ops, mut):
-    mean = 1.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.iqr(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        mean = mean * (min_val ** (1.0 / len(ops)))
-    return mean
-
 class DissimilarityMatrix:
 
     def __init__(self, max_OPs, mut):
@@ -127,9 +105,6 @@ class DissimilarityMatrix:
             if product < min_val:
                 min_val = product
         return min_val
-
-    def get_OPs(self):
-        return self.OPs
 
     def __str__(self):
         output = ""

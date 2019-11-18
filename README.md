@@ -11,10 +11,6 @@ This file contains two analytical model systems that were used for initial testi
 
 Of the provided applications, this is the most similar to a practical use of AMINO. Input data is from a short unbiased MD simulation of the FKBP/BUT protein-ligand system that can be found in the `data` directory. In practice, applications of AMINO should resemble the code provided in this directory.
 
-## src
-
-This is the final, ready-to-use version of AMINO. In this directory, there is a script that takes in a COLVAR and outputs the order parameters selected by AMINO, as well as a complete Python 3 implementation of all of the functions used in AMINO.
-
 ## amino.py
 
 This is the complete Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.

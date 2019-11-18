@@ -17,6 +17,8 @@ This is the complete Python 3 implementation of AMINO. You should import this in
 
 ## amino_output.py
 
+Usage:
+
 ```text
 python3 amino_output.py <COLVAR> -n <num> -b <bins>
 ```

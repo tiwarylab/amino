@@ -1,5 +1,4 @@
 import numpy as np
-import random
 import copy
 
 class OrderParameter:
@@ -19,16 +18,42 @@ class OrderParameter:
     def __str__(self):
         return str(self.name)
 
-def distortion(centers, ops, mut):
-    dis = 0.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.iqr(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        dis = dis + (min_val * min_val)
-    return 1 + (dis ** (0.5))
+class Memoizer:
+
+    def __init__(self, bins):
+        self.memo = {}
+        self.bins = bins
+
+    def d1_bin(self, x, bins = 80):
+        p_x, _ = np.histogram(x, bins=bins)
+        return p_x / np.sum(p_x)
+
+    def d2_bin(self, x, y, bins = 50):
+        p_xy, _, _ = np.histogram2d(x, y, bins=bins)
+        return p_xy / np.sum(p_xy)
+
+    def iqr(self, OP1, OP2):
+
+        index1 = str(OP1.name) + " " + str(OP2.name)
+        index2 = str(OP2.name) + " " + str(OP1.name)
+
+        memo_val = self.memo.get(index1, False) or self.memo.get(index2, False)
+        if memo_val:
+            return memo_val
+
+        x = OP1.traj
+        y = OP2.traj
+        p_x = self.d1_bin(x, self.bins)
+        p_y = self.d1_bin(y, self.bins)
+        p_xy = self.d2_bin(x, y, self.bins)
+
+        p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
+        info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
+        entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
+
+        output = max(0.0, (1 - (info / entropy)))
+        self.memo[index1] = output
+        return output
 
 class DissimilarityMatrix:
 
@@ -79,95 +104,16 @@ class DissimilarityMatrix:
             self.matrix[len(self.OPs)].append(self.mut.iqr(OP, OP))
             self.OPs.append(OP)
 
-    def reduce(self):
-        min_val = 10
-        index = -1
-        for i in range(len(self.matrix)):
-            product = 1
-            for j in range(len(self.matrix[i])):
-                if not i == j:
-                    product = product * self.matrix[i][j]
-            if product < min_val:
-                index = i
-                min_val = product
-        self.matrix.pop(index)
-        for i in range(len(self.matrix)):
-            self.matrix[i].pop(index)
-        self.OPs.pop(index)
-
-    def min_product(self):
-        min_val = 10
-        for i in range(len(self.matrix)):
-            product = 1
-            for j in range(len(self.matrix[i])):
-                if not i == j:
-                    product = product * self.matrix[i][j]
-            if product < min_val:
-                min_val = product
-        return min_val
-
-    def __str__(self):
-        output = ""
-        output = output + "OPs:\n"
-        for i in self.OPs:
-            output = output + str(i) + "\n"
-        output = output + "\nMatrix:\n"
-        for i in self.matrix:
-            for j in i:
-                output = output + str(j) + " "
-            output = output + "\n"
-        return output
-
-def d1_bin(x, bins = 80):
-
-    p_x, _ = np.histogram(x, bins=bins)
-    return p_x / np.sum(p_x)
-
-def d2_bin(x, y, bins = 50):
-
-    if len(x) != len(y):
-        raise Exception("Order parameter lists are of different size.")
-
-    p_xy, _, _ = np.histogram2d(x, y, bins=bins)
-    return p_xy / np.sum(p_xy)
-
-class Memoizer:
-
-    def __init__(self, bins):
-        self.memo = {}
-        self.bins = bins
-
-    def iqr(self, OP1, OP2):
-        index1 = str(OP1.name) + " " + str(OP2.name)
-        index2 = str(OP2.name) + " " + str(OP1.name)
-        if index1 in self.memo:
-            return self.memo[index1]
-        elif index2 in self.memo:
-            return self.memo[index2]
-        else:
-            x = OP1.traj
-            y = OP2.traj
-            p_x = d1_bin(x, self.bins)
-            p_y = d1_bin(y, self.bins)
-            p_xy = d2_bin(x, y, self.bins)
-
-            info = 0
-            entropy = 0
-
-            entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
-            p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
-            info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
-
-            if ((1 - (info / entropy)) < 0):
-                output = 0.0
-            else:
-                output = (1 - (info / entropy))
-
-            self.memo[index1] = output
-            return output
-
-    def __str__(self):
-        print(len(self.memo))
+def distortion(centers, ops, mut):
+    dis = 0.0
+    for i in ops:
+        min_val = np.inf
+        for j in centers:
+            tmp = mut.iqr(i, j)
+            if tmp < min_val:
+                min_val = tmp
+        dis = dis + (min_val * min_val)
+    return 1 + (dis ** (0.5))
 
 def grouping(new_OPs, all_OPs, mut):
     groups = [[] for i in range(len(new_OPs))]
@@ -210,47 +156,32 @@ def cluster(ops, seeds, mut):
 
     return centers
 
-def find_ops(old_ops, max_outputs, bins, jump_filename=None):
+def find_ops(old_ops, max_outputs, bins):
 
     mut = Memoizer(bins)
-    matrix = DissimilarityMatrix(max_outputs, mut)
 
-    print("Building dissimilarity matrix...")
-    for i in old_ops:
-        matrix.add_OP(i)
-
-    for i in old_ops[::-1]:
-        matrix.add_OP(i)
-    print("Done dissimilarity matrix construction...")
-
-    tmp = copy.deepcopy(matrix)
     distortion_array = []
     num_array = []
-    str_num_array = []
+    op_dict = {}
 
-    while (len(tmp.OPs) > 0):
-        print("Checking " + str(len(tmp.OPs)) + " order parameters...")
-        num_array.append(len(tmp.OPs))
-        str_num_array.append(str(len(tmp.OPs)))
+    while (max_outputs > 0):
+
+        print("Checking " + str(max_outputs) + " order parameters...")
+
+        matrix = DissimilarityMatrix(max_outputs, mut)
+        for i in old_ops:
+            matrix.add_OP(i)
+        for i in old_ops[::-1]:
+            matrix.add_OP(i)
+
+        num_array.append(len(matrix.OPs))
         seed = []
-        for i in tmp.OPs:
+        for i in matrix.OPs:
             seed.append(i)
         tmp_ops = cluster(old_ops, seed, mut)
+        op_dict[len(seed)] = tmp_ops
         distortion_array.append(distortion(tmp_ops, old_ops, mut))
-        tmp.reduce()
-
-    jumps = []
-
-    for dim in range(1,11):
-        neg_expo = np.array(distortion_array) ** (-0.5 * dim)
-        local = []
-        for j in range(len(neg_expo) - 1):
-            local.append(neg_expo[j] - neg_expo[j + 1])
-        jumps.append(local)
-
-    jump_num_array = []
-    for i in range(len(str_num_array) - 1):
-        jump_num_array.append(str_num_array[i])
+        max_outputs = max_outputs - 1
 
     num_ops = 0
 
@@ -267,10 +198,4 @@ def find_ops(old_ops, max_outputs, bins, jump_filename=None):
         if num_array[min_index] > num_ops:
             num_ops = num_array[min_index]
 
-    if not jump_filename == None:
-        np.save(jump_filename, all_jumps)
-
-    while (len(matrix.OPs) > num_ops):
-        matrix.reduce()
-
-    return cluster(old_ops, matrix.OPs, mut)
+    return op_dict[num_ops]

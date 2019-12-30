@@ -1,10 +1,10 @@
 import numpy as np
 import copy
 
+# Order Parameter (OP) class - stores OP name and trajectory
 class OrderParameter:
 
     # name should be unique to the Order Parameter being defined
-    # In other words for every possible pair of OP's x and y, (x.name != y.name) must be true
     def __init__(self, name, traj):
         self.name = name
         self.traj = traj
@@ -12,27 +12,32 @@ class OrderParameter:
     def __eq__(self, other):
         return self.name == other.name
 
+    # This is needed for the sets construction used in clustering
     def __hash__(self):
         return hash(self.name)
 
     def __str__(self):
         return str(self.name)
 
+# Memoizes distance computation between OP's to prevent re-calculations
 class Memoizer:
 
     def __init__(self, bins):
         self.memo = {}
         self.bins = bins
 
+    # Binning a single OP in 1D space
     def d1_bin(self, x, bins = 80):
         p_x, _ = np.histogram(x, bins=bins)
         return p_x / np.sum(p_x)
 
+    # Binning two OP's in 2D space
     def d2_bin(self, x, y, bins = 50):
         p_xy, _, _ = np.histogram2d(x, y, bins=bins)
         return p_xy / np.sum(p_xy)
 
-    def iqr(self, OP1, OP2):
+    # Checks if distance has been computed before, otherwise computes distance
+    def distance(self, OP1, OP2):
 
         index1 = str(OP1.name) + " " + str(OP2.name)
         index2 = str(OP2.name) + " " + str(OP1.name)
@@ -55,20 +60,23 @@ class Memoizer:
         self.memo[index1] = output
         return output
 
+# Dissimilarity Matrix (DM) construction
 class DissimilarityMatrix:
 
-    def __init__(self, max_OPs, mut):
-        self.max_OPs = max_OPs
-        self.matrix = [[] for i in range(max_OPs)]
+    # Initializes DM based on size
+    def __init__(self, size, mut):
+        self.size = size
+        self.matrix = [[] for i in range(size)]
         self.mut = mut
         self.OPs = []
 
+    # Checks a new OP against OP's in DM to see if it should be added to DM
     def add_OP(self, OP):
-        if len(self.OPs) == self.max_OPs:
+        if len(self.OPs) == self.size:
             mut_info = []
             existing = []
             for i in range(len(self.OPs)):
-                mut_info.append(self.mut.iqr(self.OPs[i], OP))
+                mut_info.append(self.mut.distance(self.OPs[i], OP))
                 product = 1
                 for j in range(len(self.OPs)):
                     if not i == j:
@@ -91,54 +99,56 @@ class DissimilarityMatrix:
                             difference = candidate_info - existing[i]
                             old_OP = i
             if update == True:
-                mut_info[old_OP] = self.mut.iqr(OP, OP)
+                mut_info[old_OP] = self.mut.distance(OP, OP)
                 self.matrix[old_OP] = mut_info
                 self.OPs[old_OP] = OP
                 for i in range(len(self.OPs)):
                     self.matrix[i][old_OP] = mut_info[i]
         else:
             for i in range(len(self.OPs)):
-                mut_info = self.mut.iqr(OP, self.OPs[i])
+                mut_info = self.mut.distance(OP, self.OPs[i])
                 self.matrix[i].append(mut_info)
                 self.matrix[len(self.OPs)].append(mut_info)
-            self.matrix[len(self.OPs)].append(self.mut.iqr(OP, OP))
+            self.matrix[len(self.OPs)].append(self.mut.distance(OP, OP))
             self.OPs.append(OP)
 
+# Computes distortion using selected `centers` given full set of `ops`
 def distortion(centers, ops, mut):
     dis = 0.0
     for i in ops:
         min_val = np.inf
         for j in centers:
-            tmp = mut.iqr(i, j)
+            tmp = mut.distance(i, j)
             if tmp < min_val:
                 min_val = tmp
         dis = dis + (min_val * min_val)
     return 1 + (dis ** (0.5))
 
-def grouping(new_OPs, all_OPs, mut):
-    groups = [[] for i in range(len(new_OPs))]
-    for OP in all_OPs:
+# Groups `ops` around `centers`
+def grouping(centers, ops, mut):
+    groups = [[] for i in range(len(centers))]
+    for OP in ops:
         group = 0
-        for i in range(len(new_OPs)):
-            tmp = mut.iqr(OP, new_OPs[i])
-            if tmp < mut.iqr(OP, new_OPs[group]):
+        for i in range(len(centers)):
+            tmp = mut.distance(OP, centers[i])
+            if tmp < mut.distance(OP, centers[group]):
                 group = i
         groups[group].append(OP)
     return groups
 
-def group_evaluation(OPs, mut):
+# Returns the "center-most" OP in the set `ops`
+def group_evaluation(ops, mut):
 
-    center = OPs[0]
-    min_distortion = distortion([OPs[0]], OPs, mut)
-
-    for i in OPs:
-        tmp = distortion([i], OPs, mut)
+    center = ops[0]
+    min_distortion = distortion([ops[0]], ops, mut)
+    for i in ops:
+        tmp = distortion([i], ops, mut)
         if tmp < min_distortion:
             center = i
             min_distortion = tmp
-
     return center
 
+# Running clustering on `ops` starting with `seeds`
 def cluster(ops, seeds, mut):
 
     old_centers = []
@@ -156,24 +166,27 @@ def cluster(ops, seeds, mut):
 
     return centers
 
+# This is the general workflow for AMINO
 def find_ops(old_ops, max_outputs, bins):
 
     mut = Memoizer(bins)
-
     distortion_array = []
     num_array = []
     op_dict = {}
 
+    # This loops through each number of clusters
     while (max_outputs > 0):
 
         print("Checking " + str(max_outputs) + " order parameters...")
 
+        # DM construction
         matrix = DissimilarityMatrix(max_outputs, mut)
         for i in old_ops:
             matrix.add_OP(i)
         for i in old_ops[::-1]:
             matrix.add_OP(i)
 
+        # Clustering
         num_array.append(len(matrix.OPs))
         seed = []
         for i in matrix.OPs:
@@ -183,6 +196,7 @@ def find_ops(old_ops, max_outputs, bins):
         distortion_array.append(distortion(tmp_ops, old_ops, mut))
         max_outputs = max_outputs - 1
 
+    # Determining number of clusters
     num_ops = 0
 
     for dim in range(1,11):

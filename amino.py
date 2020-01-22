@@ -167,7 +167,7 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs, bins):
+def find_ops(old_ops, max_outputs, bins, jump_filename=None):
 
     mut = Memoizer(bins)
     distortion_array = []
@@ -198,12 +198,14 @@ def find_ops(old_ops, max_outputs, bins):
 
     # Determining number of clusters
     num_ops = 0
+    all_jumps = []
 
     for dim in range(1,11):
         neg_expo = np.array(distortion_array) ** (-0.5 * dim)
         jumps = []
         for i in range(len(neg_expo) - 1):
             jumps.append(neg_expo[i] - neg_expo[i + 1])
+        all_jumps.append(jumps)
 
         min_index = 0
         for i in range(len(jumps)):
@@ -211,5 +213,8 @@ def find_ops(old_ops, max_outputs, bins):
                 min_index = i
         if num_array[min_index] > num_ops:
             num_ops = num_array[min_index]
+
+    if not jump_filename == None:
+        np.save(jump_filename, [num_array, distortion_array])
 
     return op_dict[num_ops]

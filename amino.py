@@ -23,14 +23,8 @@ class OrderParameter:
 class Memoizer:
 
     def __init__(self, bins):
-        self.d_memo = {}
-        self.p_memo = {}
+        self.memo = {}
         self.bins = bins
-
-    # Binning a single OP in 1D space
-    def d1_bin(self, x, bins = 80):
-        p_x, _ = np.histogram(x, bins=bins)
-        return p_x / np.sum(p_x)
 
     # Binning two OP's in 2D space
     def d2_bin(self, x, y, bins = 50):
@@ -39,41 +33,26 @@ class Memoizer:
 
     # Checks if distance has been computed before, otherwise computes distance
     def distance(self, OP1, OP2):
-        
-        name1 = str(OP1.name)
-        name2 = str(OP2.name)
-        
-        index1 = name1 + " " + name2
-        index2 = name2 + " " + name1
 
-        memo_val = self.d_memo.get(index1, False) or self.d_memo.get(index2, False)
+        index1 = str(OP1.name) + " " + str(OP2.name)
+        index2 = str(OP2.name) + " " + str(OP1.name)
+
+        memo_val = self.memo.get(index1, False) or self.memo.get(index2, False)
         if memo_val:
             return memo_val
 
         x = OP1.traj
         y = OP2.traj
-        p_x_mem = self.p_memo.get(name1, None)
-        if np.all(p_x_mem!=None):
-            p_x = p_x_mem
-        else:
-            p_x = self.d1_bin(x, self.bins)
-            self.p_memo[name1] = p_x
-            
-        p_y_mem = self.p_memo.get(name2, None)
-        if np.all(p_y_mem!=None):
-            p_y = p_y_mem
-        else:
-            p_y = self.d1_bin(y, self.bins)
-            self.p_memo[name2] = p_y
-            
         p_xy = self.d2_bin(x, y, self.bins)
+        p_x = np.sum(p_xy, axis=1)
+        p_y = np.sum(p_xy, axis=0)
 
         p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
         info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
         entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
 
         output = max(0.0, (1 - (info / entropy)))
-        self.d_memo[index1] = output
+        self.memo[index1] = output
         return output
 
 # Dissimilarity Matrix (DM) construction

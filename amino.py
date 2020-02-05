@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.neighbors import KernelDensity
 import copy
 
 # Order Parameter (OP) class - stores OP name and trajectory
@@ -22,19 +23,29 @@ class OrderParameter:
 # Memoizes distance computation between OP's to prevent re-calculations
 class Memoizer:
 
-    def __init__(self, bins):
+    def __init__(self, bins,bandwidth,kernel):
         self.memo = {}
         self.bins = bins
-
-    # Binning a single OP in 1D space
-    def d1_bin(self, x, bins = 80):
-        p_x, _ = np.histogram(x, bins=bins)
-        return p_x / np.sum(p_x)
+        self.bandwidth = bandwidth
+        self.kernel = kernel
 
     # Binning two OP's in 2D space
-    def d2_bin(self, x, y, bins = 50):
-        p_xy, _, _ = np.histogram2d(x, y, bins=bins)
-        return p_xy / np.sum(p_xy)
+    def d2_bin(self, x, y):
+        x,y = np.array(x),np.array(y) # FIX THE NORMALIZATION TO BE AT OP INITIALIZATION
+        x = x.reshape([-1,1])/np.std(x)
+        y = y.reshape([-1,1])/np.std(y)
+
+        KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
+        KD.fit(np.column_stack((x,y)))
+        grid1 = np.linspace(np.min(x),np.max(x),self.bins)
+        grid2 = np.linspace(np.min(y),np.max(y),self.bins)
+        mesh = np.meshgrid(grid1,grid2)
+        data = np.column_stack((mesh[0].reshape(-1,1),mesh[1].reshape(-1,1)))
+        samp = KD.score_samples(data)
+        samp = samp.reshape(self.bins,self.bins)
+        p = np.exp(samp)/np.sum(np.exp(samp))
+
+        return p
 
     # Checks if distance has been computed before, otherwise computes distance
     def distance(self, OP1, OP2):
@@ -48,9 +59,9 @@ class Memoizer:
 
         x = OP1.traj
         y = OP2.traj
-        p_x = self.d1_bin(x, self.bins)
-        p_y = self.d1_bin(y, self.bins)
-        p_xy = self.d2_bin(x, y, self.bins)
+        p_xy = self.d2_bin(x, y)
+        p_x = np.sum(p_xy, axis=1)
+        p_y = np.sum(p_xy, axis=0)
 
         p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
         info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
@@ -167,9 +178,20 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=None, jump_filename=None):
+def find_ops(old_ops, max_outputs=20, bins=None, bandwidth=None, kernel='gaussian', jump_filename=None):
+    if bandwidth == None:
+        if kernel == 'parabolic':
+            kernel = 'epanechnikov'
+        if kernel == 'epanechnikov':
+            bw_constant = 2.2
+        else:
+            bw_constant = 1
+        
+        n = np.shape(old_ops[0].traj)[0]
+        bandwidth = bw_constant*n**(-1/6)
+        print('Selected bandwidth: ' + str(bandwidth)+ '\n')
 
-    mut = Memoizer(bins)
+    mut = Memoizer(bins, bandwidth, kernel)
     distortion_array = []
     num_array = []
     op_dict = {}

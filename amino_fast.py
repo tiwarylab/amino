@@ -3,6 +3,7 @@ from sklearn.neighbors import KernelDensity
 import copy
 import dask
 import dask.multiprocessing
+from dask.diagnostics import ProgressBar
 dask.config.set(scheduler='processes')
 
 # Order Parameter (OP) class - stores OP name and trajectory
@@ -73,25 +74,14 @@ class Memoizer:
 
         output = max(0.0, (1 - (info / entropy)))
         return output
-    
-    def memo_update(self, distances, labels):
-        for i in range(len(labels)):
-            if labels[i] != False:
-                self.memo[labels[i]] = distances[i]
                 
     def dist_matrix(self, group1, group2):
         tmps = []
-        labels = []
         for i in group2:
             tmps.append([])
-            labels.append([])
             for j in group1:
                 mi, label = self.distance(i, j)
                 tmps[-1].append(mi)
-                labels[-1].append(label)
-        tmps = dask.compute(*tmps)
-        for i in range(len(labels)):
-            self.memo_update(tmps[i],labels[i])
         return tmps
         
 
@@ -110,18 +100,15 @@ class DissimilarityMatrix:
         if len(self.OPs) == self.size:
             mut_info = []
             existing = []
-            labels = []
             for i in range(len(self.OPs)):
                 mi, label = self.mut.distance(self.OPs[i], OP)
                 mut_info.append(mi)
-                labels.append(label)
                 product = 1
                 for j in range(len(self.OPs)):
                     if not i == j:
                         product = product * self.matrix[i][j]
                 existing.append(product)
-            mut_info = list(dask.compute(*mut_info,scheduler='single-threaded'))
-            self.mut.memo_update(mut_info,labels)
+            #mut_info = list(dask.compute(*mut_info,scheduler='single-threaded'))
             update = False
             difference = None
             for i in range(len(self.OPs)):
@@ -140,8 +127,7 @@ class DissimilarityMatrix:
                             old_OP = i
             if update == True:
                 mi, label = self.mut.distance(OP, OP)
-                mi = dask.compute(mi,scheduler='single-threaded')
-                self.mut.memo_update(mi,[label])
+                #mi = dask.compute(mi,scheduler='single-threaded')
                 mut_info[old_OP] = mi
                 self.matrix[old_OP] = mut_info
                 self.OPs[old_OP] = OP
@@ -149,20 +135,16 @@ class DissimilarityMatrix:
                     self.matrix[i][old_OP] = mut_info[i]
         else:
             distances = []
-            labels = []
             for i in range(len(self.OPs)):
                 mi,label = self.mut.distance(OP, self.OPs[i])
                 distances.append(mi)
-                labels.append(label)
-            distances = list(dask.compute(*distances,scheduler='single-threaded'))
-            self.mut.memo_update(distances,labels)
+            #distances = list(dask.compute(*distances,scheduler='single-threaded'))
             for i in range(len(self.OPs)):
                 mut_info = distances[i]
                 self.matrix[i].append(mut_info)
                 self.matrix[len(self.OPs)].append(mut_info)
             mi, label = self.mut.distance(OP, OP)
-            mi = dask.compute(mi)
-            self.mut.memo_update([mi],[label])
+            #mi = dask.compute(mi)
             self.matrix[len(self.OPs)].append(mi)
             self.OPs.append(OP)
            
@@ -192,27 +174,42 @@ def group_evaluation(ops, mut):
     pairs = np.argwhere(np.triu(index_mat)==1)
     dist_mat = np.zeros((len(ops),len(ops)))
     distances = []
-    labels = []
 
     for pair in pairs:
         mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
         distances.append(mi)
-        labels.append(label)
 
-    distances = dask.compute(*distances, scheduler='single-threaded')
+    #distances = dask.compute(*distances, scheduler='single-threaded')
 
     for i in range(len(pairs)):
         pair = pairs[i]
         dist_mat[pair[0], pair[1]] = distances[i]
 
-    for i in range(len(labels)):
-        mut.memo_update(distances,labels)
 
     dist_mat = dist_mat + dist_mat.T
     distortions = 1 + np.sum(dist_mat**2, axis=0)**(.5)
     center = ops[np.argmin(distortions)]
     
     return center
+
+def full_matrix(ops, mut):
+    index_mat = np.ones((len(ops),len(ops)))
+    pairs = np.argwhere(np.triu(index_mat)==1)
+    dist_mat = np.zeros((len(ops),len(ops)))
+    distances = []
+    labels = []
+
+    for pair in pairs:
+        mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
+        distances.append(mi)
+        labels.append(label)
+    with ProgressBar():
+        distances = dask.compute(*distances)
+
+    for i in range(len(labels)):
+        mut.memo[labels[i]] = distances[i]
+        
+            
 
 # Running clustering on `ops` starting with `seeds`
 def cluster(ops, seeds, mut):
@@ -223,10 +220,8 @@ def cluster(ops, seeds, mut):
     while (set(centers) != set(old_centers)):
         old_centers = copy.deepcopy(centers)
         centers = []
-        print('group')
         groups = grouping(old_centers, ops, mut)
         for i in range(len(groups)):
-            print('eval')
             result = group_evaluation(groups[i], mut)
             centers.append(result)
 
@@ -303,6 +298,9 @@ def find_ops(old_ops, max_outputs=20, bins=None, bandwidth=None, kernel='gaussia
 
     if bins == None:
         bins = np.ceil(np.sqrt(len(old_ops[0].traj)))
+        
+    print('Calculating all pairwise distances...')
+    full_matrix(old_ops, mut)
 
     # This loops through each number of clusters
     while (max_outputs > 0):
@@ -323,8 +321,5 @@ def find_ops(old_ops, max_outputs=20, bins=None, bandwidth=None, kernel='gaussia
         
     # Determining number of clusters
     num_ops = num_clust(distortion_array, num_array, jump_filename)
-    print(op_dict)
-
-
 
     return op_dict[num_ops]

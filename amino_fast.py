@@ -3,7 +3,6 @@ from sklearn.neighbors import KernelDensity
 import copy
 import dask
 import dask.multiprocessing
-from multiprocessing import Manager
 dask.config.set(scheduler='processes')
 
 # Order Parameter (OP) class - stores OP name and trajectory
@@ -28,9 +27,7 @@ class OrderParameter:
 class Memoizer:
 
     def __init__(self, bins, bandwidth, kernel):
-        manager = Manager()
-        
-        self.memo = manager.dict()
+        self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
         self.kernel = kernel
@@ -50,7 +47,6 @@ class Memoizer:
         return p
 
     # Checks if distance has been computed before, otherwise computes distance
-    @dask.delayed
     def distance(self, OP1, OP2):
 
         index1 = str(OP1.name) + " " + str(OP2.name)
@@ -58,10 +54,15 @@ class Memoizer:
 
         memo_val = self.memo.get(index1, False) or self.memo.get(index2, False)
         if memo_val:
-            return memo_val
+            return memo_val, False
 
         x = OP1.traj
         y = OP2.traj
+        
+        output = dask.delayed(self.dist_calc)(x,y)
+        return output, index1
+
+    def dist_calc(self, x, y):
         p_xy = self.d2_bin(x, y)
         p_x = np.sum(p_xy, axis=1)
         p_y = np.sum(p_xy, axis=0)
@@ -71,8 +72,28 @@ class Memoizer:
         entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
 
         output = max(0.0, (1 - (info / entropy)))
-        self.memo[index1] = output
         return output
+    
+    def memo_update(self, distances, labels):
+        for i in range(len(labels)):
+            if labels[i] != False:
+                self.memo[labels[i]] = distances[i]
+                
+    def dist_matrix(self, group1, group2):
+        tmps = []
+        labels = []
+        for i in group2:
+            tmps.append([])
+            labels.append([])
+            for j in group1:
+                mi, label = self.distance(i, j)
+                tmps[-1].append(mi)
+                labels[-1].append(label)
+        tmps = dask.compute(*tmps)
+        for i in range(len(labels)):
+            self.memo_update(tmps[i],labels[i])
+        return tmps
+        
 
 # Dissimilarity Matrix (DM) construction
 class DissimilarityMatrix:
@@ -89,14 +110,18 @@ class DissimilarityMatrix:
         if len(self.OPs) == self.size:
             mut_info = []
             existing = []
+            labels = []
             for i in range(len(self.OPs)):
-                mut_info.append(self.mut.distance(self.OPs[i], OP))
+                mi, label = self.mut.distance(self.OPs[i], OP)
+                mut_info.append(mi)
+                labels.append(label)
                 product = 1
                 for j in range(len(self.OPs)):
                     if not i == j:
                         product = product * self.matrix[i][j]
                 existing.append(product)
-            mut_info = list(dask.compute(*mut_info))
+            mut_info = list(dask.compute(*mut_info,scheduler='single-threaded'))
+            self.mut.memo_update(mut_info,labels)
             update = False
             difference = None
             for i in range(len(self.OPs)):
@@ -114,30 +139,37 @@ class DissimilarityMatrix:
                             difference = candidate_info - existing[i]
                             old_OP = i
             if update == True:
-                mut_info[old_OP] = self.mut.distance(OP, OP).compute()
+                mi, label = self.mut.distance(OP, OP)
+                mi = dask.compute(mi,scheduler='single-threaded')
+                self.mut.memo_update(mi,[label])
+                mut_info[old_OP] = mi
                 self.matrix[old_OP] = mut_info
                 self.OPs[old_OP] = OP
                 for i in range(len(self.OPs)):
                     self.matrix[i][old_OP] = mut_info[i]
         else:
+            distances = []
+            labels = []
             for i in range(len(self.OPs)):
-                mut_info = self.mut.distance(OP, self.OPs[i])
+                mi,label = self.mut.distance(OP, self.OPs[i])
+                distances.append(mi)
+                labels.append(label)
+            distances = list(dask.compute(*distances,scheduler='single-threaded'))
+            self.mut.memo_update(distances,labels)
+            for i in range(len(self.OPs)):
+                mut_info = distances[i]
                 self.matrix[i].append(mut_info)
                 self.matrix[len(self.OPs)].append(mut_info)
-            self.matrix[len(self.OPs)].append(self.mut.distance(OP, OP))
-            self.matrix = list(dask.compute(*self.matrix))
+            mi, label = self.mut.distance(OP, OP)
+            mi = dask.compute(mi)
+            self.mut.memo_update([mi],[label])
+            self.matrix[len(self.OPs)].append(mi)
             self.OPs.append(OP)
-
+           
+            
 # Computes distortion using selected `centers` given full set of `ops`
 def distortion(centers, ops, mut):
-    dis = 0.0
-    tmps = []
-    for i in ops:
-        tmps.append([])
-        min_val = np.inf
-        for j in centers:
-            tmps[-1].append(mut.distance(i, j))
-    tmps = dask.compute(*tmps)
+    tmps = mut.dist_matrix(centers, ops)
     min_vals = np.min(tmps,axis=1)
     dis = np.sum(min_vals**2)
     return 1 + (dis ** (0.5))
@@ -145,16 +177,9 @@ def distortion(centers, ops, mut):
 # Groups `ops` around `centers`
 def grouping(centers, ops, mut):
     groups = [[] for i in range(len(centers))]
-    assignment = []
-    tmps = []
-    for OP in ops:
-        tmps.append([])
-        for i in range(len(centers)):
-            tmps[-1].append(mut.distance(OP, centers[i]))
-    tmps = dask.compute(*tmps)
+    tmps = mut.dist_matrix(centers, ops)  
     assignment = np.argmin(tmps,axis=1)
-    
-        
+     
     for i in range(len(assignment)):
         groups[assignment[i]].append(ops[i])
     return groups
@@ -162,13 +187,31 @@ def grouping(centers, ops, mut):
 # Returns the "center-most" OP in the set `ops`
 def group_evaluation(ops, mut):
 
-    center = ops[0]
-    min_distortion = distortion([ops[0]], ops, mut)
-    for i in ops:
-        tmp = distortion([i], ops, mut)
-        if tmp < min_distortion:
-            center = i
-            min_distortion = tmp
+    index_mat = np.ones((len(ops),len(ops)))
+    np.fill_diagonal(index_mat,0)
+    pairs = np.argwhere(np.triu(index_mat)==1)
+    dist_mat = np.zeros((len(ops),len(ops)))
+    distances = []
+    labels = []
+
+    for pair in pairs:
+        mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
+        distances.append(mi)
+        labels.append(label)
+
+    distances = dask.compute(*distances, scheduler='single-threaded')
+
+    for i in range(len(pairs)):
+        pair = pairs[i]
+        dist_mat[pair[0], pair[1]] = distances[i]
+
+    for i in range(len(labels)):
+        mut.memo_update(distances,labels)
+
+    dist_mat = dist_mat + dist_mat.T
+    distortions = 1 + np.sum(dist_mat**2, axis=0)**(.5)
+    center = ops[np.argmin(distortions)]
+    
     return center
 
 # Running clustering on `ops` starting with `seeds`
@@ -178,11 +221,12 @@ def cluster(ops, seeds, mut):
     centers = copy.deepcopy(seeds)
 
     while (set(centers) != set(old_centers)):
-
         old_centers = copy.deepcopy(centers)
         centers = []
+        print('group')
         groups = grouping(old_centers, ops, mut)
         for i in range(len(groups)):
+            print('eval')
             result = group_evaluation(groups[i], mut)
             centers.append(result)
 
@@ -222,10 +266,10 @@ def k_clusters(old_ops, max_outputs, mut):
         seed = []
         for i in matrix.OPs:
             seed.append(i)
-        tmp_ops = cluster(old_ops, seed, mut)
-        disto = distortion(tmp_ops, old_ops, mut)
+        centroids = cluster(old_ops, seed, mut)
+        disto = distortion(centroids, old_ops, mut)
         
-        return tmp_ops, disto
+        return centroids, disto
 
 def num_clust(distortion_array, num_array, jump_filename):
     num_ops = 0

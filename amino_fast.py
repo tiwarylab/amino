@@ -48,7 +48,7 @@ class Memoizer:
         return p
 
     # Checks if distance has been computed before, otherwise computes distance
-    def distance(self, OP1, OP2, printable=True):
+    def distance(self, OP1, OP2):
 
         index1 = str(OP1.name) + " " + str(OP2.name)
         index2 = str(OP2.name) + " " + str(OP1.name)
@@ -63,8 +63,7 @@ class Memoizer:
         y = OP2.traj
         
         output = dask.delayed(self.dist_calc)(x,y)
-        if printable:
-            print(index1)
+
         return output, index1
 
     def dist_calc(self, x, y):
@@ -204,7 +203,7 @@ def full_matrix(ops, mut):
     labels = []
 
     for pair in pairs:
-        mi, label = mut.distance(ops[pair[0]], ops[pair[1]], printable=False)
+        mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
         distances.append(mi)
         labels.append(label)
     with ProgressBar():

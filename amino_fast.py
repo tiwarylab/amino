@@ -172,28 +172,15 @@ def grouping(centers, ops, mut):
 # Returns the "center-most" OP in the set `ops`
 def group_evaluation(ops, mut):
 
-    index_mat = np.ones((len(ops),len(ops)))
-    np.fill_diagonal(index_mat,0)
-    pairs = np.argwhere(np.triu(index_mat)==1)
-    dist_mat = np.zeros((len(ops),len(ops)))
-    distances = []
-
-    for pair in pairs:
-        mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
-        distances.append(mi)
-
-    #distances = dask.compute(*distances, scheduler='single-threaded')
-
-    for i in range(len(pairs)):
-        pair = pairs[i]
-        dist_mat[pair[0], pair[1]] = distances[i]
-
-
-    dist_mat = dist_mat + dist_mat.T
-    distortions = 1 + np.sum(dist_mat**2, axis=0)**(.5)
-    center = ops[np.argmin(distortions)]
-    
+    center = ops[0]
+    min_distortion = distortion([ops[0]], ops, mut)
+    for i in ops:
+        tmp = distortion([i], ops, mut)
+        if tmp < min_distortion:
+            center = i
+            min_distortion = tmp
     return center
+
 
 def full_matrix(ops, mut):
     index_mat = np.ones((len(ops),len(ops)))
@@ -221,9 +208,11 @@ def cluster(ops, seeds, mut):
     centers = copy.deepcopy(seeds)
 
     while (set(centers) != set(old_centers)):
+
         old_centers = copy.deepcopy(centers)
         centers = []
         groups = grouping(old_centers, ops, mut)
+
         for i in range(len(groups)):
             result = group_evaluation(groups[i], mut)
             centers.append(result)

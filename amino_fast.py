@@ -184,6 +184,7 @@ class Memoizer:
             Matrix containing distances between the groups.
             
         """
+        
         tmps = []
         for i in group2:
             tmps.append([])
@@ -228,7 +229,9 @@ class DissimilarityMatrix:
         -------
         None
             self.matrix is updated directly without a return.
+            
         """
+        
         if len(self.OPs) == self.size: # matrix is full, check for swaps
             mut_info = []
             existing = []
@@ -297,6 +300,7 @@ def distortion(centers, ops, mut):
         Minimum total distortion given the centroids and OPs.
     
     """
+    
     tmps = mut.dist_matrix(centers, ops)
     min_vals = np.min(tmps,axis=1)
     dis = np.sum(min_vals**2)
@@ -319,6 +323,7 @@ def grouping(centers, ops, mut):
         One list for each centroid containing the associated OPs.
     
     """
+    
     groups = [[] for i in range(len(centers))]
     tmps = mut.dist_matrix(centers, ops)  
     assignment = np.argmin(tmps,axis=1)
@@ -372,7 +377,9 @@ def full_matrix(ops, mut):
     -------
     None
         Stores all values in mut.memo and does not return a value.
+        
     """
+    
     index_mat = np.ones((len(ops),len(ops)))
     pairs = np.argwhere(np.triu(index_mat)==1)
     dist_mat = np.zeros((len(ops),len(ops)))
@@ -594,6 +601,7 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     -------
     list of OPs
         The centrioids for the optimal clustering.
+        
     """
     
     if kernel == 'parabolic':

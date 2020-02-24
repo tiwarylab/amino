@@ -2,7 +2,7 @@
 clustering of mutual information based distances. Method by Ravindra, Smith,
 and Tiwary. Code maintained by Ravindra and Smith.
 
-This is the serial kernel density estimation version.
+This is the parallelized kernel density estimation version.
 
 Read and cite the following when using this method:
 https://pubs.rsc.org/--/content/articlehtml/2020/me/c9me00115h
@@ -11,6 +11,10 @@ https://pubs.rsc.org/--/content/articlehtml/2020/me/c9me00115h
 import numpy as np
 from sklearn.neighbors import KernelDensity
 import copy
+import dask
+import dask.multiprocessing
+from dask.diagnostics import ProgressBar
+dask.config.set(scheduler='processes')
 
 class OrderParameter:
     """Order Parameter (OP) class - stores OP name and trajectory
@@ -28,7 +32,7 @@ class OrderParameter:
     # name should be unique to the Order Parameter being defined
     def __init__(self, name, traj):
         self.name = name
-        self.traj = traj
+        self.traj = np.array(traj).reshape([-1,1])/np.std(traj)
 
     def __eq__(self, other):
         return self.name == other.name
@@ -40,7 +44,7 @@ class OrderParameter:
     def __str__(self):
         return str(self.name)
 
-# Memoizes distance computation between OP's to prevent re-calculations
+
 class Memoizer:
     """Memoizes distance computation between OP's to prevent re-calculations.
     
@@ -57,8 +61,8 @@ class Memoizer:
         Kernel name for kernel density estimation.
         
     """
-    
-    def __init__(self, bins,bandwidth,kernel):
+
+    def __init__(self, bins, bandwidth, kernel):
         self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
@@ -82,10 +86,7 @@ class Memoizer:
             self.bins by self.bins array of joint probabilities from KDE.
             
         """
-        x,y = np.array(x),np.array(y) # FIX THE NORMALIZATION TO BE AT OP INITIALIZATION
-        x = x.reshape([-1,1])/np.std(x)
-        y = y.reshape([-1,1])/np.std(y)
-
+        
         KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
         KD.fit(np.column_stack((x,y)))
         grid1 = np.linspace(np.min(x),np.max(x),self.bins)
@@ -98,9 +99,9 @@ class Memoizer:
 
         return p
 
-    # Checks if distance has been computed before, otherwise computes distance
     def distance(self, OP1, OP2):
         """Returns the mutual information distance between two OPs.
+        Calls distance calculation in parallel or returns saved values.
         
         Parameters
         ----------
@@ -112,20 +113,49 @@ class Memoizer:
             
         Returns
         -------
-        float
+        output : float
             The mutual information distance.
+            
+        label (index1 or False) : str or bool
+            The label for saving the distance in the memoizer.
+            The name of the OP pair if not memoized or False if memoized.
             
         """
 
         index1 = str(OP1.name) + " " + str(OP2.name)
         index2 = str(OP2.name) + " " + str(OP1.name)
 
-        memo_val = self.memo.get(index1, False) or self.memo.get(index2, False)
-        if memo_val:
-            return memo_val
+        memo_val = self.memo.get(index1)
+        if memo_val == None: 
+            memo_val = self.memo.get(index2)
+        if memo_val != None:
+            return memo_val, False
 
         x = OP1.traj
         y = OP2.traj
+        
+        output = dask.delayed(self.dist_calc)(x,y)
+
+        return output, index1
+
+    def dist_calc(self, x, y):
+        """Calculates the distance between two trajectories.
+        This is called when distances are not memoized.
+        
+        Parameters
+        ----------
+        x : np.array
+            First trajectory.
+            
+        y : np.array
+            Second trajectory.
+            
+        Returns
+        -------
+        output : float
+            Calculated mutual information distance.
+        
+        """
         p_xy = self.d2_bin(x, y)
         p_x = np.sum(p_xy, axis=1)
         p_y = np.sum(p_xy, axis=0)
@@ -135,8 +165,34 @@ class Memoizer:
         entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
 
         output = max(0.0, (1 - (info / entropy)))
-        self.memo[index1] = output
         return output
+                
+    def dist_matrix(self, group1, group2):
+        """Calculates all distances between two groups of OPs.
+        
+        Parameters
+        ----------
+        group1 : list of OrderParameters
+            First group of OPs.
+            
+        group2 : list of OrderParameters
+            Second group of OPs.
+            
+        Returns
+        -------
+        tmps : list of lists of floats
+            Matrix containing distances between the groups.
+            
+        """
+        
+        tmps = []
+        for i in group2:
+            tmps.append([])
+            for j in group1:
+                mi, label = self.distance(i, j)
+                tmps[-1].append(mi)
+        return tmps
+        
 
 # Dissimilarity Matrix (DM) construction
 class DissimilarityMatrix:
@@ -152,14 +208,12 @@ class DissimilarityMatrix:
         
     """
 
-    # Initializes DM based on size
     def __init__(self, size, mut):
         self.size = size
         self.matrix = [[] for i in range(size)]
         self.mut = mut
         self.OPs = []
-
-    # Checks a new OP against OP's in DM to see if it should be added to DM
+        
     def add_OP(self, OP):
         """Adds OPs to the matrix if they should be added.
         OPs should be added when there are fewer OPs than self.size
@@ -178,11 +232,12 @@ class DissimilarityMatrix:
             
         """
         
-        if len(self.OPs) == self.size:
+        if len(self.OPs) == self.size: # matrix is full, check for swaps
             mut_info = []
             existing = []
             for i in range(len(self.OPs)):
-                mut_info.append(self.mut.distance(self.OPs[i], OP))
+                mi, label = self.mut.distance(self.OPs[i], OP)
+                mut_info.append(mi)
                 product = 1
                 for j in range(len(self.OPs)):
                     if not i == j:
@@ -204,21 +259,28 @@ class DissimilarityMatrix:
                         if (candidate_info - existing[i]) > difference:
                             difference = candidate_info - existing[i]
                             old_OP = i
-            if update == True:
-                mut_info[old_OP] = self.mut.distance(OP, OP)
+            if update == True: # swapping out an OP
+                mi, label = self.mut.distance(OP, OP)
+                mut_info[old_OP] = mi
                 self.matrix[old_OP] = mut_info
                 self.OPs[old_OP] = OP
                 for i in range(len(self.OPs)):
                     self.matrix[i][old_OP] = mut_info[i]
-        else:
+        else: # adding an OP when there are fewer than self.size
+            distances = []
             for i in range(len(self.OPs)):
-                mut_info = self.mut.distance(OP, self.OPs[i])
+                mi,label = self.mut.distance(OP, self.OPs[i])
+                distances.append(mi)
+            for i in range(len(self.OPs)):
+                mut_info = distances[i]
                 self.matrix[i].append(mut_info)
                 self.matrix[len(self.OPs)].append(mut_info)
-            self.matrix[len(self.OPs)].append(self.mut.distance(OP, OP))
+            mi, label = self.mut.distance(OP, OP)
+            #mi = dask.compute(mi)
+            self.matrix[len(self.OPs)].append(mi)
             self.OPs.append(OP)
-
-# Computes distortion using selected `centers` given full set of `ops`
+           
+            
 def distortion(centers, ops, mut):
     """Computes the distortion between a set of centeroids and OPs.
     When multiple centoids are used, the minimum distortion grouping
@@ -238,17 +300,12 @@ def distortion(centers, ops, mut):
         Minimum total distortion given the centroids and OPs.
     
     """
-    dis = 0.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.distance(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        dis = dis + (min_val * min_val)
+    
+    tmps = mut.dist_matrix(centers, ops)
+    min_vals = np.min(tmps,axis=1)
+    dis = np.sum(min_vals**2)
     return 1 + (dis ** (0.5))
 
-# Groups `ops` around `centers`
 def grouping(centers, ops, mut):
     """Assigns OPs to minimum distortion clusters.
     
@@ -271,16 +328,13 @@ def grouping(centers, ops, mut):
     """
     
     groups = [[] for i in range(len(centers))]
-    for OP in ops:
-        group = 0
-        for i in range(len(centers)):
-            tmp = mut.distance(OP, centers[i])
-            if tmp < mut.distance(OP, centers[group]):
-                group = i
-        groups[group].append(OP)
+    tmps = mut.dist_matrix(centers, ops)  
+    assignment = np.argmin(tmps,axis=1)
+     
+    for i in range(len(assignment)):
+        groups[assignment[i]].append(ops[i])
     return groups
 
-# Returns the "center-most" OP in the set `ops`
 def group_evaluation(ops, mut):
     """Calculates the centroid minimizing distortion for a set of OPs.
     
@@ -308,7 +362,45 @@ def group_evaluation(ops, mut):
             min_distortion = tmp
     return center
 
-# Running clustering on `ops` starting with `seeds`
+
+def full_matrix(ops, mut):
+    """Calculates all the OP distances in parallel.
+    Used before any of the clustering to maximize the
+    number of distances calculated at once.
+    
+    Parameters
+    ----------
+    ops : list of OrderParameters
+        All OPs.
+        
+    mut : Memoizer
+        The Memoizer used for distance calculation and storage.
+        
+    Returns
+    -------
+    None
+        Stores all values in mut.memo and does not return a value.
+        
+    """
+    
+    index_mat = np.ones((len(ops),len(ops)))
+    pairs = np.argwhere(np.triu(index_mat)==1)
+    dist_mat = np.zeros((len(ops),len(ops)))
+    distances = []
+    labels = []
+
+    for pair in pairs:
+        mi, label = mut.distance(ops[pair[0]], ops[pair[1]])
+        distances.append(mi)
+        labels.append(label)
+    with ProgressBar():
+        distances = dask.compute(*distances)
+
+    for i in range(len(labels)):
+        mut.memo[labels[i]] = distances[i]
+        
+            
+
 def cluster(ops, seeds, mut):
     """Clusters OPs startng with centroids from a DissimilarityMatrix.
     
@@ -344,6 +436,140 @@ def cluster(ops, seeds, mut):
             centers.append(result)
 
     return centers
+
+def set_bandwidth(ops, kernel):
+    """Calculates the bandwidth consistent with Scott and Silverman's
+    rules of thumb for bandwidth selection.
+    
+    Parameters
+    ----------
+    ops : list of OrderParameters
+        All OPs.
+        
+    kernel : str
+        Kernel name for kernel density estimation.
+        
+    Returns
+    -------
+    bandwidth : float
+        Bandwidth from the rules of thumb (they're the same for 2D KDE).
+        
+    """
+    
+    if kernel == 'epanechnikov':
+        bw_constant = 2.2
+    else:
+        bw_constant = 1
+
+    n = np.shape(ops[0].traj)[0]
+    bandwidth = bw_constant*n**(-1/6)
+
+    print('Selected bandwidth: ' + str(bandwidth)+ '\n')
+
+    return bandwidth
+        
+def starting_centroids(old_ops, max_outputs, mut):
+    """"Makes a DissimilarityMatrix and scans all OPs forward and backward
+    adding OPs to have maximum separation between starting centroids.
+    
+    Parameters
+    ----------
+    old_ops : list of OrderParameters
+        All OPs.
+        
+    max_outputs : int
+        Number of starting centroids.
+        
+    mut : Memoizer
+        The Memoizer used for distance calculation and storage.
+        
+    Returns
+    -------
+    matrix : DissimilarityMatrix
+        The DissimilarityMatrix with the starting centroids.
+        
+    """"
+    matrix = DissimilarityMatrix(max_outputs, mut)
+    for i in old_ops:
+        matrix.add_OP(i)
+    for i in old_ops[::-1]:
+        matrix.add_OP(i)
+        
+    return matrix
+
+def k_clusters(old_ops, max_outputs, mut):
+    """Calculates starting centroids, clusters, and calculates
+    total dissimilarity for a set number of clusters.
+    
+    old_ops : list of OrderParameters
+        All OPs.
+        
+    max_outputs : int
+        The number of clusters to be calculated.
+        
+    mut : Memoizer
+        The Memoizer used for distance calculation and storage.
+        
+    Returns
+    -------
+    centroids : list of OrderParameters
+        Centroids resulting from clustering.
+        
+    disto : float
+        The total distortion from all centroids.
+        
+    """
+    
+    # DM construction
+    matrix = starting_centroids(old_ops, max_outputs, mut)
+
+
+    # Clustering
+    seed = []
+    for i in matrix.OPs:
+        seed.append(i)
+    centroids = cluster(old_ops, seed, mut)
+    disto = distortion(centroids, old_ops, mut)
+
+    return centroids, disto
+
+def num_clust(distortion_array, num_array):
+    """Calculates the optimal number of clusters given
+    the distortion for each k-clustering.
+    
+    Parameters
+    ----------
+    distortion_array : list of floats
+        The total distortion for each k-clustering.
+        
+    num_array : list of ints
+        The number of clusters associated with the distortions.
+        
+    Returns
+    -------
+    num_ops : int
+        The optimal number of clusters/centroids.
+        
+    """
+    
+    num_ops = 0
+    all_jumps = []
+
+    for dim in range(1,11):
+        neg_expo = np.array(distortion_array) ** (-0.5 * dim)
+        jumps = []
+        for i in range(len(neg_expo) - 1):
+            jumps.append(neg_expo[i] - neg_expo[i + 1])
+        all_jumps.append(jumps)
+
+        min_index = 0
+        for i in range(len(jumps)):
+            if jumps[i] > jumps[min_index]:
+                min_index = i
+        if num_array[min_index] > num_ops:
+            num_ops = num_array[min_index]
+        
+        return num_ops
 
 # This is the general workflow for AMINO
 def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None):
@@ -381,17 +607,10 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         
     """
     
+    if kernel == 'parabolic':
+        kernel = 'epanechnikov'
     if bandwidth == None:
-        if kernel == 'parabolic':
-            kernel = 'epanechnikov'
-        if kernel == 'epanechnikov':
-            bw_constant = 2.2
-        else:
-            bw_constant = 1
-        
-        n = np.shape(old_ops[0].traj)[0]
-        bandwidth = bw_constant*n**(-1/6)
-        print('Selected bandwidth: ' + str(bandwidth)+ '\n')
+        bandwidth = set_bandwidth(old_ops, kernel)
 
     mut = Memoizer(bins, bandwidth, kernel)
     distortion_array = []
@@ -400,48 +619,28 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
 
     if bins == None:
         bins = np.ceil(np.sqrt(len(old_ops[0].traj)))
+        
+    print('Calculating all pairwise distances...')
+    full_matrix(old_ops, mut)
 
     # This loops through each number of clusters
     while (max_outputs > 0):
 
         print("Checking " + str(max_outputs) + " order parameters...")
+        
+        tmp_ops, disto = k_clusters(old_ops, max_outputs, mut)
 
-        # DM construction
-        matrix = DissimilarityMatrix(max_outputs, mut)
-        for i in old_ops:
-            matrix.add_OP(i)
-        for i in old_ops[::-1]:
-            matrix.add_OP(i)
-
-        # Clustering
-        num_array.append(len(matrix.OPs))
-        seed = []
-        for i in matrix.OPs:
-            seed.append(i)
-        tmp_ops = cluster(old_ops, seed, mut)
-        op_dict[len(seed)] = tmp_ops
-        distortion_array.append(distortion(tmp_ops, old_ops, mut))
+        num_array.append(max_outputs)
+        op_dict[max_outputs] = tmp_ops
+        distortion_array.append(disto)
+        
         max_outputs = max_outputs - 1
 
-    # Determining number of clusters
-    num_ops = 0
-    all_jumps = []
-
-    for dim in range(1,11):
-        neg_expo = np.array(distortion_array) ** (-0.5 * dim)
-        jumps = []
-        for i in range(len(neg_expo) - 1):
-            jumps.append(neg_expo[i] - neg_expo[i + 1])
-        all_jumps.append(jumps)
-
-        min_index = 0
-        for i in range(len(jumps)):
-            if jumps[i] > jumps[min_index]:
-                min_index = i
-        if num_array[min_index] > num_ops:
-            num_ops = num_array[min_index]
-
+    
     if not jump_filename == None:
         np.save(jump_filename, distortion_array[::-1])
+        
+    # Determining number of clusters
+    num_ops = num_clust(distortion_array, num_array)
 
     return op_dict[num_ops]

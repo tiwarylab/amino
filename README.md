@@ -1,5 +1,6 @@
 # AMINO - Automatic Mutual Information Noise Omission
-An algorithm that reduces a large dictionary of order parameters to a smaller set of order parameters by screening for redundancy using a mutual information based distance metric.
+An algorithm that reduces a large dictionary of order parameters to a smaller set of order parameters by screening for redundancy using a mutual information based distance metric. Please read and cite this manuscript when using AMINO:
+https://pubs.rsc.org/--/content/articlehtml/2020/me/c9me00115h
 
 Overviews of each of the subdirectories in this repository are provided below. For detailed descriptions of the files within the subdirectories, refer to the README's within each subdirectory.
 

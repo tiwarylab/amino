@@ -317,6 +317,9 @@ def grouping(centers, ops, mut):
     ops : list of OrderParameters
         All OPs to be assigned to clusters.
         
+    mut : Memoizer
+        The Memoizer used for distance calculation and storage.
+        
     Returns
     -------
     groups : list of lists of OrderParameters

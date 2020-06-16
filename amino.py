@@ -28,7 +28,7 @@ class OrderParameter:
     # name should be unique to the Order Parameter being defined
     def __init__(self, name, traj):
         self.name = name
-        self.traj = traj
+        self.traj = np.array(traj).reshape([-1,1])/np.std(traj)
 
     def __eq__(self, other):
         return self.name == other.name
@@ -83,10 +83,7 @@ class Memoizer:
             self.bins by self.bins array of joint probabilities from KDE.
             
         """
-        x,y = np.array(x),np.array(y) # FIX THE NORMALIZATION TO BE AT OP INITIALIZATION
-        x = x.reshape([-1,1])/np.std(x)
-        y = y.reshape([-1,1])/np.std(y)
-
+        
         KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
         KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
         grid1 = np.linspace(np.min(x),np.max(x),self.bins)
@@ -347,7 +344,7 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights = None):
+def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights=None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -374,6 +371,10 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         
     jump_filename : str or None
         The filename to save distortion jumps.
+        
+    weights : list of floats or numpy array
+        The weights associated with each data point after reweighting an enhanced 
+        sampling trajectory.
         
     Returns
     -------

@@ -28,7 +28,7 @@ class OrderParameter:
     # name should be unique to the Order Parameter being defined
     def __init__(self, name, traj):
         self.name = name
-        self.traj = traj
+        self.traj = np.array(traj).reshape([-1,1])/np.std(traj)
 
     def __eq__(self, other):
         return self.name == other.name
@@ -58,11 +58,12 @@ class Memoizer:
         
     """
     
-    def __init__(self, bins,bandwidth,kernel):
+    def __init__(self, bins, bandwidth, kernel, weights=None):
         self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
         self.kernel = kernel
+        self.weights = weights
 
     # Binning two OP's in 2D space
     def d2_bin(self, x, y):
@@ -82,12 +83,9 @@ class Memoizer:
             self.bins by self.bins array of joint probabilities from KDE.
             
         """
-        x,y = np.array(x),np.array(y) # FIX THE NORMALIZATION TO BE AT OP INITIALIZATION
-        x = x.reshape([-1,1])/np.std(x)
-        y = y.reshape([-1,1])/np.std(y)
-
+        
         KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
-        KD.fit(np.column_stack((x,y)))
+        KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
         grid1 = np.linspace(np.min(x),np.max(x),self.bins)
         grid2 = np.linspace(np.min(y),np.max(y),self.bins)
         mesh = np.meshgrid(grid1,grid2)
@@ -346,7 +344,7 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None):
+def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights=None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -374,6 +372,10 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     jump_filename : str or None
         The filename to save distortion jumps.
         
+    weights : list of floats or numpy array
+        The weights associated with each data point after reweighting an enhanced 
+        sampling trajectory.
+        
     Returns
     -------
     list of OPs
@@ -389,11 +391,15 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         else:
             bw_constant = 1
         
-        n = np.shape(old_ops[0].traj)[0]
+        if type(weights) == type(None):
+            n = np.shape(old_ops[0].traj)[0]
+        else:
+            weights = np.array(weights)
+            n = np.sum(weights)**2 / np.sum(weights**2)
         bandwidth = bw_constant*n**(-1/6)
         print('Selected bandwidth: ' + str(bandwidth)+ '\n')
 
-    mut = Memoizer(bins, bandwidth, kernel)
+    mut = Memoizer(bins, bandwidth, kernel, weights)
     distortion_array = []
     num_array = []
     op_dict = {}

@@ -58,11 +58,12 @@ class Memoizer:
         
     """
     
-    def __init__(self, bins,bandwidth,kernel):
+    def __init__(self, bins, bandwidth, kernel, weights=None):
         self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
         self.kernel = kernel
+        self.weights = weights
 
     # Binning two OP's in 2D space
     def d2_bin(self, x, y):
@@ -87,7 +88,7 @@ class Memoizer:
         y = y.reshape([-1,1])/np.std(y)
 
         KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
-        KD.fit(np.column_stack((x,y)))
+        KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
         grid1 = np.linspace(np.min(x),np.max(x),self.bins)
         grid2 = np.linspace(np.min(y),np.max(y),self.bins)
         mesh = np.meshgrid(grid1,grid2)
@@ -346,7 +347,7 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None):
+def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights = None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -389,11 +390,15 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         else:
             bw_constant = 1
         
-        n = np.shape(old_ops[0].traj)[0]
+        if type(weights) == type(None):
+            n = np.shape(old_ops[0].traj)[0]
+        else:
+            weights = np.array(weights)
+            n = np.sum(weights)**2 / np.sum(weights**2)
         bandwidth = bw_constant*n**(-1/6)
         print('Selected bandwidth: ' + str(bandwidth)+ '\n')
 
-    mut = Memoizer(bins, bandwidth, kernel)
+    mut = Memoizer(bins, bandwidth, kernel, weights)
     distortion_array = []
     num_array = []
     op_dict = {}

@@ -62,11 +62,12 @@ class Memoizer:
         
     """
 
-    def __init__(self, bins, bandwidth, kernel):
+    def __init__(self, bins, bandwidth, kernel, weights=None):
         self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
         self.kernel = kernel
+        self.weights = weights
 
     # Binning two OP's in 2D space
     def d2_bin(self, x, y):
@@ -88,7 +89,7 @@ class Memoizer:
         """
         
         KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
-        KD.fit(np.column_stack((x,y)))
+        KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
         grid1 = np.linspace(np.min(x),np.max(x),self.bins)
         grid2 = np.linspace(np.min(y),np.max(y),self.bins)
         mesh = np.meshgrid(grid1,grid2)
@@ -437,7 +438,7 @@ def cluster(ops, seeds, mut):
 
     return centers
 
-def set_bandwidth(ops, kernel):
+def set_bandwidth(ops, kernel, weights):
     """Calculates the bandwidth consistent with Scott and Silverman's
     rules of thumb for bandwidth selection.
     
@@ -448,6 +449,10 @@ def set_bandwidth(ops, kernel):
         
     kernel : str
         Kernel name for kernel density estimation.
+        
+    weights : list of floats or numpy array
+        The weights associated with each data point after reweighting an enhanced 
+        sampling trajectory.
         
     Returns
     -------
@@ -461,7 +466,11 @@ def set_bandwidth(ops, kernel):
     else:
         bw_constant = 1
 
-    n = np.shape(ops[0].traj)[0]
+    if type(weights) == type(None):
+        n = np.shape(ops[0].traj)[0]
+    else:
+        weights = np.array(weights)
+        n = np.sum(weights)**2 / np.sum(weights**2)
     bandwidth = bw_constant*n**(-1/6)
 
     print('Selected bandwidth: ' + str(bandwidth)+ '\n')
@@ -469,7 +478,7 @@ def set_bandwidth(ops, kernel):
     return bandwidth
         
 def starting_centroids(old_ops, max_outputs, mut):
-    """"Makes a DissimilarityMatrix and scans all OPs forward and backward
+    """Makes a DissimilarityMatrix and scans all OPs forward and backward
     adding OPs to have maximum separation between starting centroids.
     
     Parameters
@@ -488,7 +497,7 @@ def starting_centroids(old_ops, max_outputs, mut):
     matrix : DissimilarityMatrix
         The DissimilarityMatrix with the starting centroids.
         
-    """"
+    """
     matrix = DissimilarityMatrix(max_outputs, mut)
     for i in old_ops:
         matrix.add_OP(i)
@@ -572,7 +581,7 @@ def num_clust(distortion_array, num_array):
         return num_ops
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None):
+def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights=None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -600,6 +609,10 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     jump_filename : str or None
         The filename to save distortion jumps.
         
+    weights : list of floats or numpy array
+        The weights associated with each data point after reweighting an enhanced 
+        sampling trajectory.
+        
     Returns
     -------
     list of OPs
@@ -610,9 +623,9 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     if kernel == 'parabolic':
         kernel = 'epanechnikov'
     if bandwidth == None:
-        bandwidth = set_bandwidth(old_ops, kernel)
+        bandwidth = set_bandwidth(old_ops, kernel, weights)
 
-    mut = Memoizer(bins, bandwidth, kernel)
+    mut = mut = Memoizer(bins, bandwidth, kernel, weights)
     distortion_array = []
     num_array = []
     op_dict = {}

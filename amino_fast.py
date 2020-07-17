@@ -625,7 +625,7 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     if bandwidth == None:
         bandwidth = set_bandwidth(old_ops, kernel, weights)
 
-    mut = mut = Memoizer(bins, bandwidth, kernel, weights)
+    mut = Memoizer(bins, bandwidth, kernel, weights)
     distortion_array = []
     num_array = []
     op_dict = {}

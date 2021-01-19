@@ -641,6 +641,9 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     jump_filename : str or None
         The filename to save distortion jumps.
         
+    return_memo: bool
+        Option to also return the memoizer used.
+        
     weights : list of floats or numpy array
         The weights associated with each data point after reweighting an enhanced 
         sampling trajectory.
@@ -649,6 +652,9 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     -------
     list of OPs
         The centrioids for the optimal clustering.
+        
+    mut: Memoizer (only with return_memo)
+        The Memoizer used to calculate the distances used in clustering.
         
     """
     

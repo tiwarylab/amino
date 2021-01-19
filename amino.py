@@ -306,6 +306,38 @@ def group_evaluation(ops, mut):
             min_distortion = tmp
     return center
 
+def get_matrix(ops, mut):
+    """Get a matrix containing the distance between all OPs.
+    This will most commonly be used after clustering is completed
+    to observe the distances used for clustering.
+    
+    
+    Parameters
+    ----------
+    ops : list of OrderParameters
+        All OPs.
+        
+    mut : Memoizer
+        The Memoizer used for distance calculation and storage.
+        
+    Returns
+    -------
+    dist_mat : np.array
+        Distances for all pairs of OPs.
+        
+    """
+    
+    dist_mat = np.zeros((len(ops),len(ops)))
+    pairs = np.argwhere(dist_mat == 0)
+    
+    
+
+    for pair in pairs:
+        mi = mut.distance(ops[pair[0]], ops[pair[1]])
+        dist_mat[pair[0],pair[1]] = mi
+        
+    return dist_mat
+
 # Running clustering on `ops` starting with `seeds`
 def cluster(ops, seeds, mut):
     """Clusters OPs startng with centroids from a DissimilarityMatrix.
@@ -344,7 +376,8 @@ def cluster(ops, seeds, mut):
     return centers
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov', jump_filename=None, weights=None):
+def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov',
+             jump_filename=None, return_memo=False, weights=None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -450,4 +483,7 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     if not jump_filename == None:
         np.save(jump_filename, distortion_array[::-1])
 
+    if return_memo:
+        return op_dict[num_ops], mut
+        
     return op_dict[num_ops]

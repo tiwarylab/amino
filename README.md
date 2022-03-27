@@ -18,11 +18,11 @@ This is the serial, kernel density estimation Python 3 implementation of AMINO. 
 
 ## amino_fast.py
 
-This is the parallel, kernel density estimation Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.
+**This is the version of AMINO that we currently recommend for users.** This is the parallel, kernel density estimation Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.
 
-## amino_original.py
+## reproducibility/
 
-This is the histogram-based Python 3 implementation of AMINO which is used in the original paper. This version is no longer recommended but remains available for reproducibility.
+This directory contains the histogram-based Python 3 implementation of AMINO which is used in the original paper. This version is no longer recommended but remains available for reproducibility.
 
 ## amino_output.py
 

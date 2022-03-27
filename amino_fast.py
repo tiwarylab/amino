@@ -613,7 +613,7 @@ def num_clust(distortion_array, num_array):
 
 # This is the general workflow for AMINO
 def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov',
-             jump_filename=None, return_memo=False,  weights=None):
+             distortion_filename=None, return_memo=False,  weights=None):
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
@@ -638,7 +638,7 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         It is recommended to use either epanechnikov (parabolic) or gaussian.
         These are currently the only two implemented in bandwidth rule of thumb.
         
-    jump_filename : str or None
+    distortion_filename : str or None
         The filename to save distortion jumps.
         
     return_memo: bool
@@ -688,8 +688,8 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         max_outputs = max_outputs - 1
 
     
-    if not jump_filename == None:
-        np.save(jump_filename, distortion_array[::-1])
+    if not distortion_filename == None:
+        np.save(distortion_filename, distortion_array[::-1])
         
     # Determining number of clusters
     num_ops = num_clust(distortion_array, num_array)

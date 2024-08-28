@@ -1,16 +1,16 @@
 """AMINO: generating a minimally redundant set of order parameters through
 clustering of mutual information based distances. Method by Ravindra, Smith,
-and Tiwary. Code maintained by Ravindra and Smith.
+and Tiwary. Code maintained by Ravindra and Smith. Tested and reorganized by 
+Da Teng in September 2024.
 
 This is the serial kernel density estimation version.
 
 Read and cite the following when using this method:
-https://pubs.rsc.org/--/content/articlehtml/2020/me/c9me00115h
+https://doi.org/10.1039/C9ME00115H
 """
 
 import numpy as np
 from sklearn.neighbors import KernelDensity
-import copy
 
 class OrderParameter:
     """Order Parameter (OP) class - stores OP name and trajectory
@@ -66,7 +66,7 @@ class Memoizer:
         self.weights = weights
 
     # Binning two OP's in 2D space
-    def d2_bin(self, x, y):
+    def _d2_bin(self, x, y):
         """ Calculate a joint probability distribution for two trajectories.
         
         Parameters
@@ -84,20 +84,22 @@ class Memoizer:
             
         """
         
-        KD = KernelDensity(bandwidth=self.bandwidth,kernel=self.kernel)
+        KD = KernelDensity(bandwidth=self.bandwidth, kernel=self.kernel)
         KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
-        grid1 = np.linspace(np.min(x),np.max(x),self.bins)
-        grid2 = np.linspace(np.min(y),np.max(y),self.bins)
-        mesh = np.meshgrid(grid1,grid2)
-        data = np.column_stack((mesh[0].reshape(-1,1),mesh[1].reshape(-1,1)))
+
+        grid1 = np.linspace(np.min(x), np.max(x), self.bins)
+        grid2 = np.linspace(np.min(y), np.max(y), self.bins)
+        mesh = np.meshgrid(grid1, grid2)
+
+        data = np.column_stack((mesh[0].reshape(-1,1), mesh[1].reshape(-1,1)))
         samp = KD.score_samples(data)
-        samp = samp.reshape(self.bins,self.bins)
+        samp = samp.reshape(self.bins, self.bins)
         p = np.exp(samp)/np.sum(np.exp(samp))
 
         return p
 
     # Checks if distance has been computed before, otherwise computes distance
-    def distance(self, OP1, OP2):
+    def distance(self, OP1: OrderParameter, OP2: OrderParameter) -> float:
         """Returns the mutual information distance between two OPs.
         
         Parameters
@@ -115,25 +117,49 @@ class Memoizer:
             
         """
 
-        index1 = str(OP1.name) + " " + str(OP2.name)
-        index2 = str(OP2.name) + " " + str(OP1.name)
+        index1 = f"{OP1.name} {OP2.name}"
+        index2 = f"{OP2.name} {OP1.name}"
 
-        memo_val = self.memo.get(index1, False) or self.memo.get(index2, False)
-        if memo_val:
-            return memo_val
+        if index1 in self.memo:
+            return self.memo[index1]
+        elif index2 in self.memo:
+            return self.memo[index2]
 
-        x = OP1.traj
-        y = OP2.traj
-        p_xy = self.d2_bin(x, y)
+        d = self._distance_kernel(OP1, OP2)
+        self.memo[index1] = d
+
+        return d
+    
+    def _distance_kernel(self, OP1: OrderParameter, OP2: OrderParameter) -> float:
+        """Returns the mutual information distance between two OPs.
+        
+        Parameters
+        ----------
+        OP1 : OrderParameter
+            The first order parameter for distance calculation.
+            
+        OP2 : OrderParameter
+            The second order parameter for distance calculation.
+            
+        Returns
+        -------
+        float
+            The mutual information distance.
+            
+        """
+
+        p_xy = self._d2_bin(OP1.traj, OP2.traj)
         p_x = np.sum(p_xy, axis=1)
         p_y = np.sum(p_xy, axis=0)
 
-        p_x_times_p_y = np.tensordot(p_x, p_y, axes = 0)
-        info = np.sum(p_xy * np.ma.log(np.ma.divide(p_xy, p_x_times_p_y)))
-        entropy = np.sum(-1 * p_xy * np.ma.log(p_xy))
+        log_p_x_times_p_y = np.ma.log(np.tensordot(p_x, p_y, axes = 0))
+        log_p_xy = np.ma.log(p_xy)
+
+        info = np.sum(p_xy * (log_p_xy - log_p_x_times_p_y))
+        entropy = np.sum(-1 * p_xy * log_p_xy)
 
         output = max(0.0, (1 - (info / entropy)))
-        self.memo[index1] = output
+
         return output
 
 # Dissimilarity Matrix (DM) construction
@@ -151,14 +177,14 @@ class DissimilarityMatrix:
     """
 
     # Initializes DM based on size
-    def __init__(self, size, mut):
+    def __init__(self, size: int, mut: Memoizer):
         self.size = size
-        self.matrix = [[] for i in range(size)]
+        self.matrix = np.zeros((size, size))
         self.mut = mut
         self.OPs = []
 
     # Checks a new OP against OP's in DM to see if it should be added to DM
-    def add_OP(self, OP):
+    def add_OP(self, OP) -> None:
         """Adds OPs to the matrix if they should be added.
         OPs should be added when there are fewer OPs than self.size
         or if they can increase the geometric mean of distances
@@ -176,55 +202,57 @@ class DissimilarityMatrix:
             
         """
         
-        if len(self.OPs) == self.size:
-            mut_info = []
-            existing = []
-            for i in range(len(self.OPs)):
-                mut_info.append(self.mut.distance(self.OPs[i], OP))
-                product = 1
-                for j in range(len(self.OPs)):
-                    if not i == j:
-                        product = product * self.matrix[i][j]
-                existing.append(product)
-            update = False
-            difference = None
-            for i in range(len(self.OPs)):
-                candidate_info = 1
-                for j in range(len(self.OPs)):
-                    if not i == j:
-                        candidate_info = candidate_info * mut_info[j]
-                if candidate_info > existing[i]:
-                    update = True
-                    if difference == None:
-                        difference = candidate_info - existing[i]
-                        old_OP = i
-                    else:
-                        if (candidate_info - existing[i]) > difference:
-                            difference = candidate_info - existing[i]
-                            old_OP = i
-            if update == True:
-                mut_info[old_OP] = self.mut.distance(OP, OP)
-                self.matrix[old_OP] = mut_info
-                self.OPs[old_OP] = OP
-                for i in range(len(self.OPs)):
-                    self.matrix[i][old_OP] = mut_info[i]
-        else:
-            for i in range(len(self.OPs)):
-                mut_info = self.mut.distance(OP, self.OPs[i])
-                self.matrix[i].append(mut_info)
-                self.matrix[len(self.OPs)].append(mut_info)
-            self.matrix[len(self.OPs)].append(self.mut.distance(OP, OP))
+        if len(self.OPs) == self.size: # matrix is full, check for swaps
+
+            # distance of the new OP to all existing OPs
+            mut_info = np.array([self.mut.distance(OP, i) for i in self.OPs])
+
+            # product of distances between all existing OPs, excluding the diagonal element (Eqn. 3)
+            # Taking the power of 1/(|S|-1) is not necessary for comparison purposes
+            existing = np.array([np.prod(self.matrix[i], where=(np.arange(self.size) != i)) for i in np.arange(self.size)])
+
+            for i in np.arange(self.size):
+
+                n = np.argmin(existing)   # Algorithm 3 Line 7
+
+                candidate_info = np.prod(mut_info, where=(np.arange(self.size) != i)) # Algorithm 3 Line 8
+
+                if existing[n] < candidate_info:  # Algorithm 3 Line 9
+
+                    mut_info[n] = self.mut.distance(OP, OP) 
+                    self.matrix[n,:] = mut_info
+                    self.matrix[:,n] = mut_info
+                    self.OPs[n] = OP  # Update the list of OPs
+
+        else: # adding an OP when there are fewer than self.size
+
+            mut_info = np.zeros(self.size)
+
+            n = len(self.OPs)
+            for i, op in enumerate(self.OPs):
+                mut_info[i] = self.mut.distance(OP, op)
+            mut_info[n] = self.mut.distance(OP, OP)
+
+            try:
+                assert(mut_info[n] < 1e-2)
+            except:
+                raise ValueError("The dissimilarity between an OP and itself is not close to zero. Decrease bandwidth.")
+
+            self.matrix[n,:] = mut_info
+            self.matrix[:,n] = mut_info
+
             self.OPs.append(OP)
 
+
 # Computes distortion using selected `centers` given full set of `ops`
-def distortion(centers, ops, mut):
+def distortion(centers: list[OrderParameter], ops: list[OrderParameter], mut: Memoizer) -> float:
     """Computes the distortion between a set of centeroids and OPs.
     When multiple centoids are used, the minimum distortion grouping
     will be used to calculate the total distortion.
     
     Parameters
     ----------
-    centers : list of OrderParameters
+    centers : OrderParameters
         Cluster centroids.
         
     ops : list of OrderParameters
@@ -236,75 +264,12 @@ def distortion(centers, ops, mut):
         Minimum total distortion given the centroids and OPs.
     
     """
+
     dis = 0.0
-    for i in ops:
-        min_val = np.inf
-        for j in centers:
-            tmp = mut.distance(i, j)
-            if tmp < min_val:
-                min_val = tmp
-        dis = dis + (min_val * min_val)
-    return 1 + (dis ** (0.5))
-
-# Groups `ops` around `centers`
-def grouping(centers, ops, mut):
-    """Assigns OPs to minimum distortion clusters.
-    
-    Parameters
-    ----------
-    centers : list of OrderParameters
-        Cluster centroids.
-        
-    ops : list of OrderParameters
-        All OPs to be assigned to clusters.
-        
-    mut : Memoizer
-        The Memoizer used for distance calculation and storage.
-        
-    Returns
-    -------
-    groups : list of lists of OrderParameters
-        One list for each centroid containing the associated OPs.
-    
-    """
-    
-    groups = [[] for i in range(len(centers))]
-    for OP in ops:
-        group = 0
-        for i in range(len(centers)):
-            tmp = mut.distance(OP, centers[i])
-            if tmp < mut.distance(OP, centers[group]):
-                group = i
-        groups[group].append(OP)
-    return groups
-
-# Returns the "center-most" OP in the set `ops`
-def group_evaluation(ops, mut):
-    """Calculates the centroid minimizing distortion for a set of OPs.
-    
-    Parameters
-    ----------
-    ops : list of OrderParameters
-        Set of OPs for centroid calculation.
-    
-    mut : Memoizer
-        The Memoizer used for distance calculation and storage.
-        
-    Returns
-    -------
-    center : OrderParameter
-        The OP that is the minimum distortion centroid.
-        
-    """
-
-    center = ops[0]
-    min_distortion = distortion([ops[0]], ops, mut)
-    for i in ops:
-        tmp = distortion([i], ops, mut)
-        if tmp < min_distortion:
-            center = i
-            min_distortion = tmp
-    return center
+    for i in ops: 
+        min_val = np.min([mut.distance(i, c) for c in centers])
+        dis += (min_val * min_val)
+    return 1 + np.sqrt(dis)
 
 def get_matrix(ops, mut):
     """Get a matrix containing the distance between all OPs.
@@ -327,19 +292,20 @@ def get_matrix(ops, mut):
         
     """
     
-    dist_mat = np.zeros((len(ops),len(ops)))
-    pairs = np.argwhere(dist_mat == 0)
+    from itertools import combinations_with_replacement
     
+    n = len(ops)
+    dist_mat = np.zeros((n, n))
     
-
-    for pair in pairs:
-        mi = mut.distance(ops[pair[0]], ops[pair[1]])
-        dist_mat[pair[0],pair[1]] = mi
+    for i, j in combinations_with_replacement(range(n), 2):
+        dist = mut.distance(ops[i], ops[j])
+        dist_mat[i, j] = dist
+        dist_mat[j, i] = dist
         
     return dist_mat
 
 # Running clustering on `ops` starting with `seeds`
-def cluster(ops, seeds, mut):
+def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: Memoizer) -> list[OrderParameter]:
     """Clusters OPs startng with centroids from a DissimilarityMatrix.
     
     Parameters
@@ -360,29 +326,49 @@ def cluster(ops, seeds, mut):
         
     """
 
-    old_centers = []
-    centers = copy.deepcopy(seeds)
+    centers = np.array([ops.index(c) for c in seeds])
+    new_centers = np.zeros_like(centers)
+    group = np.full((len(ops)), -1, dtype=int)
 
-    while (set(centers) != set(old_centers)):
+    # Initialize with cluster centers
+    for i, s in enumerate(centers):
+        group[s] = i
 
-        old_centers = copy.deepcopy(centers)
-        centers = []
-        groups = grouping(old_centers, ops, mut)
+    while np.any(centers != new_centers):
 
-        for i in range(len(groups)):
-            result = group_evaluation(groups[i], mut)
-            centers.append(result)
+        centers = np.array(new_centers)
 
-    return centers
+        # Assign all OP to nearest cluster
+        for i, op in enumerate(ops):
+            if group[i] == -1:
+                dist = [mut.distance(op, ops[c]) for c in centers]
+                group[i] = np.argmin(dist)
+
+        # Calculates the new centroid minimizing distortion for a set of OPs.
+        for i, c in enumerate(centers):
+
+            # index of all members in my center
+            my_group = np.nonzero(group == i)[0]
+
+            dtt = [np.sum([mut.distance(ops[g], ops[j]) ** 2 for j in my_group]) for g in my_group]
+            new_centers[i] = my_group[np.argmin(dtt)]
+
+    return [ops[i] for i in centers]
 
 # This is the general workflow for AMINO
-def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechnikov',
-             distortion_filename=None, return_memo=False, weights=None):
+def find_ops(all_ops: list[OrderParameter], 
+             max_outputs: int = 20, 
+             bins: int = 20, 
+             bandwidth: float = None,
+             kernel: str = 'epanechnikov',
+             distortion_filename: str = None, 
+             weights = None,
+             verbose = True) -> list[OrderParameter]:
     """Main function performing clustering and finding the optimal number of OPs.
     
     Parameters
     ----------
-    old_ops : list of OrderParameters
+    all_ops : list of OrderParameters
         All OPs for clustering.
         
     max_outputs : int
@@ -405,12 +391,12 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
     distortion_filename : str or None
         The filename to save distortion jumps.
         
-    return_memo: bool
-        Option to also return the memoizer used.
-        
     weights : list of floats or numpy array
         The weights associated with each data point after reweighting an enhanced 
         sampling trajectory.
+
+    verbose : bool
+        If True, print out the progress.
         
     Returns
     -------
@@ -435,61 +421,50 @@ def find_ops(old_ops, max_outputs=20, bins=20, bandwidth=None, kernel='epanechni
         else:
             weights = np.array(weights)
             n = np.sum(weights)**2 / np.sum(weights**2)
+
         bandwidth = bw_constant*n**(-1/6)
         print('Selected bandwidth: ' + str(bandwidth)+ '\n')
 
     mut = Memoizer(bins, bandwidth, kernel, weights)
-    distortion_array = []
-    num_array = []
-    op_dict = {}
+
+    num_array = np.arange(1, max_outputs + 1)[::-1]
+    distortion_array = np.zeros_like(num_array)
+    selected_op = {}
 
     if bins == None:
-        bins = np.ceil(np.sqrt(len(old_ops[0].traj)))
+        bins = np.ceil(np.sqrt(len(all_ops[0].traj)))
+        print(f"Using {bins} bins for KDE.")
 
     # This loops through each number of clusters
-    while (max_outputs > 0):
-
-        print("Checking " + str(max_outputs) + " order parameters...")
+    for f, n in enumerate(num_array):
+        
+        if verbose:
+            print(f"Checking {n} order parameters...")
 
         # DM construction
-        matrix = DissimilarityMatrix(max_outputs, mut)
-        for i in old_ops:
+        matrix = DissimilarityMatrix(n, mut)
+        for i in all_ops:
             matrix.add_OP(i)
-        for i in old_ops[::-1]:
+        for i in all_ops[::-1]:
             matrix.add_OP(i)
 
         # Clustering
-        num_array.append(len(matrix.OPs))
-        seed = []
-        for i in matrix.OPs:
-            seed.append(i)
-        tmp_ops = cluster(old_ops, seed, mut)
-        op_dict[len(seed)] = tmp_ops
-        distortion_array.append(distortion(tmp_ops, old_ops, mut))
-        max_outputs = max_outputs - 1
+        selected_op[n] = cluster(all_ops, matrix.OPs, mut)
+        distortion_array[f] = distortion(selected_op[n], all_ops, mut)
 
     # Determining number of clusters
     num_ops = 0
-    all_jumps = []
 
-    for dim in range(1,11):
+    for dim in range(1, 11):
+
         neg_expo = np.array(distortion_array) ** (-0.5 * dim)
-        jumps = []
-        for i in range(len(neg_expo) - 1):
-            jumps.append(neg_expo[i] - neg_expo[i + 1])
-        all_jumps.append(jumps)
+        jumps = neg_expo[:-1] - neg_expo[1:]
+        min_index = np.argmax(jumps)
 
-        min_index = 0
-        for i in range(len(jumps)):
-            if jumps[i] > jumps[min_index]:
-                min_index = i
         if num_array[min_index] > num_ops:
             num_ops = num_array[min_index]
 
     if not distortion_filename == None:
         np.save(distortion_filename, distortion_array[::-1])
-
-    if return_memo:
-        return op_dict[num_ops], mut
         
-    return op_dict[num_ops]
+    return selected_op[num_ops]

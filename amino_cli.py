@@ -30,10 +30,10 @@ def main(filename: Annotated[str, typer.Argument(help="Name of the COLVAR file c
         n = len(names)
     if n > 20 and not override:
         n = 20
+        raise UserWarning("Number of order parameters is capped at 20. Use --override to override this limit.")
 
     # initializing objects and run the code
     ops = [amino.OrderParameter(i, trajs[i]) for i in names]
-#    final_ops = amino.find_ops(ops, n, bins)
     final_ops = amino.find_ops(ops, n, bins, bandwidth=kde_bandwidth)
 
     print(f"\n{len(final_ops)} AMINO Order Parameters:")

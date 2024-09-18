@@ -13,6 +13,8 @@ import numpy as np
 from sklearn.neighbors import KernelDensity
 from numpy.typing import ArrayLike
 
+from timeit import default_timer as timer
+
 class OrderParameter:
     """Order Parameter (OP) class - stores OP name and trajectory
     
@@ -462,12 +464,16 @@ def find_ops(all_ops: list[OrderParameter],
         if verbose:
             print(f"Checking {n} order parameters...")
 
+        time1 = timer()
         # DM construction
         matrix = DissimilarityMatrix(n, mut)
         for i in all_ops:
             matrix.add_OP(i)
         for i in all_ops[::-1]:
             matrix.add_OP(i)
+        time2 = timer()
+
+        print(f"DM construction took {time2 - time1:.2f} seconds.")
 
         # Clustering
         selected_op[n] = cluster(all_ops, matrix.OPs, mut)

@@ -1,4 +1,5 @@
 import typer
+from rich import print
 from typing import Annotated
 import numpy as np
 import amino
@@ -28,9 +29,11 @@ def main(filename: Annotated[str, typer.Argument(help="Name of the COLVAR file c
     # number of order parameters
     if n is None:
         n = len(names)
-    if n > 20 and not override:
-        n = 20
-        raise UserWarning("Number of order parameters is capped at 20. Use --override to override this limit.")
+        if n > 20 and not override:
+            # Only trigger this warning if user defaulted the --n option
+            raise UserWarning(f"Refuse to construct big dissimilarity matrix with n = {n} greater than 20. Specify an Use --override flag to override this limit.")
+    if n > 20:
+        print("[bold red]Warning:[/bold red] Dimension of dissimilarity matrix n > 20. It is advised against such a big n.")
 
     # initializing objects and run the code
     ops = [amino.OrderParameter(i, trajs[i]) for i in names]
@@ -38,8 +41,7 @@ def main(filename: Annotated[str, typer.Argument(help="Name of the COLVAR file c
 
     print(f"\n{len(final_ops)} AMINO Order Parameters:")
     for i in final_ops:
-        j, k = i.name.split('_')[1:]
-        print(f"distance :{j}@CA :{k}@CA")
+        print(i)
 
 if __name__ == "__main__":
     typer.run(main)

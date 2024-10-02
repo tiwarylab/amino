@@ -89,7 +89,6 @@ class Memoizer:
     def initialize_distances(self, ops: list[OrderParameter]) -> None:
 
         self.ops = ops
-
         n = len(ops)
 
         with mp.Pool(processes=mp.cpu_count()) as p:

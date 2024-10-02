@@ -12,8 +12,42 @@ https://doi.org/10.1039/C9ME00115H
 import numpy as np
 from sklearn.neighbors import KernelDensity
 from numpy.typing import ArrayLike
+from numba import njit
+from multiprocessing import Pool
 
 from timeit import default_timer as timer
+
+def distance_kernel(p_xy: ArrayLike) -> float:
+    '''
+    Calculates the mutual information distance given the joint distribution.
+    '''
+    p_x = np.sum(p_xy, axis=1)
+    p_y = np.sum(p_xy, axis=0)
+
+    log_p_x_times_p_y = np.ma.log(np.outer(p_x, p_y))
+    log_p_xy = np.ma.log(p_xy)
+    
+    info = np.sum(p_xy * (log_p_xy - log_p_x_times_p_y))
+    entropy = np.sum(-1 * p_xy * log_p_xy)
+
+    distance = max(0.0, (1 - (info / entropy)))
+
+    return distance
+
+@njit(parallel=True)
+def product_without_self(arr: np.array) -> np.array:
+    
+    # Compute the prefix products
+    left_products = np.cumprod(arr)
+    # Compute the suffix products (reversing and then computing cumulative product)
+    right_products = np.cumprod(arr[::-1])[::-1]
+    
+    # Prepare the output by multiplying left and right products
+    output = np.ones_like(arr)
+    output[1:] = left_products[:-1]
+    output[:-1] *= right_products[1:]
+    
+    return output
 
 class OrderParameter:
     """Order Parameter (OP) class - stores OP name and trajectory
@@ -88,7 +122,7 @@ class Memoizer:
         """
         
         KD = KernelDensity(bandwidth=self.bandwidth, kernel=self.kernel)
-        KD.fit(np.column_stack((x,y)), sample_weight=self.weights)
+        KD.fit(np.column_stack((x,y)))
 
         grid1 = np.linspace(np.min(x), np.max(x), self.bins)
         grid2 = np.linspace(np.min(y), np.max(y), self.bins)
@@ -128,45 +162,12 @@ class Memoizer:
         elif index2 in self.memo:
             return self.memo[index2]
 
-        d = self._distance_kernel(OP1, OP2)
+        p_xy = self._d2_bin(OP1.traj, OP2.traj)
+        d = distance_kernel(p_xy)
         self.memo[index1] = d
 
         return d
     
-    def _distance_kernel(self, OP1: OrderParameter, OP2: OrderParameter) -> float:
-        """The primary function for calculating the mutual information distance.
-        While the wrapper function first looks for a cached value, this function
-        is the computation kernel that calculates the distance.
-        
-        Parameters
-        ----------
-        OP1 : OrderParameter
-            The first order parameter for distance calculation.
-            
-        OP2 : OrderParameter
-            The second order parameter for distance calculation.
-            
-        Returns
-        -------
-        distance : float
-            The mutual information distance.
-            
-        """
-
-        p_xy = self._d2_bin(OP1.traj, OP2.traj)
-        p_x = np.sum(p_xy, axis=1)
-        p_y = np.sum(p_xy, axis=0)
-
-        log_p_x_times_p_y = np.ma.log(np.tensordot(p_x, p_y, axes = 0))
-        log_p_xy = np.ma.log(p_xy)
-
-        info = np.sum(p_xy * (log_p_xy - log_p_x_times_p_y))
-        entropy = np.sum(-1 * p_xy * log_p_xy)
-
-        distance = max(0.0, (1 - (info / entropy)))
-
-        return distance
-
 # Dissimilarity Matrix (DM) construction
 class DissimilarityMatrix:
     """Matrix containing distances for initial centroid determination.
@@ -188,20 +189,6 @@ class DissimilarityMatrix:
         self.mut = mut
         self.OPs = []
 
-    @staticmethod
-    def _product_without_self(arr: np.array) -> np.array:
-        
-        # Compute the prefix products
-        left_products = np.cumprod(arr)
-        # Compute the suffix products (reversing and then computing cumulative product)
-        right_products = np.cumprod(arr[::-1])[::-1]
-        
-        # Prepare the output by multiplying left and right products
-        output = np.ones_like(arr)
-        output[1:] = left_products[:-1]
-        output[:-1] *= right_products[1:]
-        
-        return output
 
     # Checks a new OP against OP's in DM to see if it should be added to DM
     def add_OP(self, new_op: OrderParameter) -> None:
@@ -238,7 +225,7 @@ class DissimilarityMatrix:
             # Taking the power of 1/(|S|-1) is not necessary for comparison purposes
             product = np.prod(self.matrix + np.eye(self.size), axis=1) 
 
-            product_row = self._product_without_self(mut_info)   # Leet
+            product_row = product_without_self(mut_info)   # Leetcode 238
 
             diff = product - product_row
             n = np.argmin(diff)
@@ -289,10 +276,8 @@ def distortion(centers: list[OrderParameter], ops: list[OrderParameter], mut: Me
         dis += (min_val * min_val)
     return 1 + np.sqrt(dis)
 
-def get_matrix(ops: list[OrderParameter], mut: Memoizer) -> np.array:
-    """Get a matrix containing the distance between all OPs.
-    This will most commonly be used after clustering is completed
-    to observe the distances used for clustering.
+def initialize_dm(ops: list[OrderParameter], mut: Memoizer):
+    """Initialize the distances in the DissimilarityMatrix in a parallel manner.
     
     Parameters
     ----------
@@ -302,24 +287,13 @@ def get_matrix(ops: list[OrderParameter], mut: Memoizer) -> np.array:
     mut : Memoizer
         The Memoizer used for distance calculation and storage.
         
-    Returns
-    -------
-    dist_mat : np.array
-        Distances for all pairs of OPs.
-        
     """
     
     from itertools import combinations_with_replacement
     
-    n = len(ops)
-    dist_mat = np.zeros((n, n))
-    
-    for i, j in combinations_with_replacement(range(n), 2):
-        dist = mut.distance(ops[i], ops[j])
-        dist_mat[i, j] = dist
-        dist_mat[j, i] = dist
-        
-    return dist_mat
+    jobs = combinations_with_replacement(ops, 2)
+    with Pool() as p:
+        p.starmap(mut.distance, jobs)
 
 # Running clustering on `ops` starting with `seeds`
 def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: Memoizer) -> list[OrderParameter]:
@@ -458,25 +432,26 @@ def find_ops(all_ops: list[OrderParameter],
         bins = np.ceil(np.sqrt(len(all_ops[0].traj)))
         print(f"Using {bins} bins for KDE.")
 
+    start = timer()
+    initialize_dm(all_ops, mut)
+    print(f"DM construction time: {timer()-start:.2f} s")
+
     # This loops through each number of clusters
     for f, n in enumerate(num_array):
         
         if verbose:
             print(f"Checking {n} order parameters...")
 
-        time1 = timer()
         # DM construction
         matrix = DissimilarityMatrix(n, mut)
         for i in all_ops:
             matrix.add_OP(i)
         for i in all_ops[::-1]:
             matrix.add_OP(i)
-        time2 = timer()
-
-        print(f"DM construction took {time2 - time1:.2f} seconds.")
 
         # Clustering
         selected_op[n] = cluster(all_ops, matrix.OPs, mut)
+
         distortion_array[f] = distortion(selected_op[n], all_ops, mut)
 
     # Determining number of clusters

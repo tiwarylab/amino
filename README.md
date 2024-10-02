@@ -33,9 +33,7 @@ python amino_cli.py --help
 Python or notebook:
 ```python
 import amino_cli
-ops = amino_cli.main("<COLVAR>", n=20)
-for i in ops:
-    print(ops)
+amino_cli.main("<COLVAR>", n=20)
 ```
 
 `<COLVAR>` is a mandatory argument providing the name of the COLVAR file that you want to reduce. 

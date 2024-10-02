@@ -1,5 +1,6 @@
 import typer
 from typing import Annotated
+from rich import print as rprint
 import numpy as np
 import amino
 
@@ -33,20 +34,16 @@ def main(filename: Annotated[str, typer.Argument(help="Name of the COLVAR file c
             # Only trigger this warning if user defaulted the --n option
             raise UserWarning(f"Refuse to construct big dissimilarity matrix with n = {n} greater than 20. Specify an --n or use --override flag to override this limit.")
     if n > 20:
-        print("[bold red]Warning:[/bold red] Dimension of dissimilarity matrix n > 20. It is advised against such a big n.")
+        rprint("[bold red]Warning:[/bold red] Dimension of dissimilarity matrix n > 20. It is advised against such a big n.")
 
     # initializing objects and run the code
     ops = [amino.OrderParameter(i, trajs[i]) for i in names]
     final_ops = amino.find_ops(ops, n, bins, bandwidth=kde_bandwidth)
 
-    return final_ops
-
-
-if __name__ == "__main__":
-
-    from rich import print
-
-    final_ops = typer.run(main)
     print(f"\n{len(final_ops)} AMINO Order Parameters:")
     for i in final_ops:
         print(i)
+
+
+if __name__ == "__main__":
+    typer.run(main)

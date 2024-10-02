@@ -2,9 +2,9 @@ import amino
 import numpy as np
 
 dat = np.loadtxt("data/BOUND_COLVAR").T
-OP_1 = amino.OrderParameter("test_OP_1", dat[0])
-OP_2 = amino.OrderParameter("test_OP_2", dat[1])
-OP_3 = amino.OrderParameter("test_OP_3", dat[2])
+ops = [amino.OrderParameter(f"test_OP_{i}", d) for i, d in enumerate(dat)]
+OP_1 = ops[0]
+OP_2 = ops[1]
 
 def equal(a, b):
     return abs(a - b) < 1e-10
@@ -102,3 +102,11 @@ def test_add_op_4():
     dis_matrix = np.array(mat.matrix)
 
     assert np.array_equal(dis_matrix, [[0, 0.5353485087893664], [0.5353485087893664, 0]])
+
+def test_initialization():
+
+    memo = amino.Memoizer(50, 0.02, "epanechnikov")
+    memo.initialize_distances(ops)
+    
+    assert equal(memo._distance_kernel(ops[0], ops[1]), 0.5353485087893664)
+    assert equal(memo.distance(ops[0], ops[1]), 0.5353485087893664)

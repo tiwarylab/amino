@@ -13,26 +13,10 @@ import numpy as np
 from sklearn.neighbors import KernelDensity
 from numpy.typing import ArrayLike
 from numba import njit
-from multiprocessing import Pool
+import multiprocessing as mp
+from itertools import combinations_with_replacement
 
 from timeit import default_timer as timer
-
-def distance_kernel(p_xy: ArrayLike) -> float:
-    '''
-    Calculates the mutual information distance given the joint distribution.
-    '''
-    p_x = np.sum(p_xy, axis=1)
-    p_y = np.sum(p_xy, axis=0)
-
-    log_p_x_times_p_y = np.ma.log(np.outer(p_x, p_y))
-    log_p_xy = np.ma.log(p_xy)
-    
-    info = np.sum(p_xy * (log_p_xy - log_p_x_times_p_y))
-    entropy = np.sum(-1 * p_xy * log_p_xy)
-
-    distance = max(0.0, (1 - (info / entropy)))
-
-    return distance
 
 @njit(parallel=True)
 def product_without_self(arr: np.array) -> np.array:
@@ -102,6 +86,19 @@ class Memoizer:
         self.kernel = kernel
         self.weights = weights
 
+    def initialize_distances(self, ops: list[OrderParameter]) -> None:
+
+        self.ops = ops
+
+        n = len(ops)
+
+        with mp.Pool(processes=mp.cpu_count()) as p:
+            result = p.starmap(self._distance_kernel, combinations_with_replacement(range(n), 2))
+
+        for (i, j), r in zip(combinations_with_replacement(range(n), 2), result):
+            idx = frozenset((self.ops[i].name, self.ops[j].name))
+            self.memo[idx] = r
+
     # Binning two OP's in 2D space
     def _d2_bin(self, x, y):
         """ Calculate a joint probability distribution for two trajectories.
@@ -154,19 +151,59 @@ class Memoizer:
             
         """
 
-        index1 = f"{OP1.name} {OP2.name}"
-        index2 = f"{OP2.name} {OP1.name}"
-
-        if index1 in self.memo:
-            return self.memo[index1]
-        elif index2 in self.memo:
-            return self.memo[index2]
-
-        p_xy = self._d2_bin(OP1.traj, OP2.traj)
-        d = distance_kernel(p_xy)
-        self.memo[index1] = d
+        idx = frozenset((OP1.name, OP2.name))
+        try:
+            d = self.memo[idx]
+        except KeyError:
+            raise ValueError(f"Distance between {OP1.name} and {OP2.name} not found.")
 
         return d
+    
+    def _distance_kernel(self, i, j) -> float:
+        '''
+        Calculates the mutual information distance given the joint distribution.
+        '''
+
+        p_xy = self._d2_bin(self.ops[i].traj, self.ops[j].traj)
+
+        p_x = np.sum(p_xy, axis=1)
+        p_y = np.sum(p_xy, axis=0)
+
+        log_p_x_times_p_y = np.ma.log(np.tensordot(p_x, p_y, axes = 0))
+        log_p_xy = np.ma.log(p_xy)
+
+        info = np.sum(p_xy * (log_p_xy - log_p_x_times_p_y))
+        entropy = np.sum(-1 * p_xy * log_p_xy)
+
+        distance = max(0.0, (1 - (info / entropy)))
+
+        return distance
+    
+    def distortion(self, centers: list[OrderParameter], ops: list[OrderParameter]) -> float:
+        """Computes the distortion between a set of centeroids and OPs.
+        When multiple centoids are used, the minimum distortion grouping
+        will be used to calculate the total distortion.
+        
+        Parameters
+        ----------
+        centers : OrderParameters
+            Cluster centroids.
+            
+        ops : list of OrderParameters
+            All OPs belonging to the centroid's clusters.
+            
+        Returns
+        -------
+        float
+            Minimum total distortion given the centroids and OPs.
+        
+        """
+
+        dis = 0.0
+        for i in ops: 
+            min_val = np.min([self.distance(i, c) for c in centers])
+            dis += (min_val * min_val)
+        return 1 + np.sqrt(dis)
     
 # Dissimilarity Matrix (DM) construction
 class DissimilarityMatrix:
@@ -250,50 +287,6 @@ class DissimilarityMatrix:
 
             self.OPs.append(new_op)
 
-def distortion(centers: list[OrderParameter], ops: list[OrderParameter], mut: Memoizer) -> float:
-    """Computes the distortion between a set of centeroids and OPs.
-    When multiple centoids are used, the minimum distortion grouping
-    will be used to calculate the total distortion.
-    
-    Parameters
-    ----------
-    centers : OrderParameters
-        Cluster centroids.
-        
-    ops : list of OrderParameters
-        All OPs belonging to the centroid's clusters.
-        
-    Returns
-    -------
-    float
-        Minimum total distortion given the centroids and OPs.
-    
-    """
-
-    dis = 0.0
-    for i in ops: 
-        min_val = np.min([mut.distance(i, c) for c in centers])
-        dis += (min_val * min_val)
-    return 1 + np.sqrt(dis)
-
-def initialize_dm(ops: list[OrderParameter], mut: Memoizer):
-    """Initialize the distances in the DissimilarityMatrix in a parallel manner.
-    
-    Parameters
-    ----------
-    ops : list of OrderParameters
-        All OPs.
-        
-    mut : Memoizer
-        The Memoizer used for distance calculation and storage.
-        
-    """
-    
-    from itertools import combinations_with_replacement
-    
-    jobs = combinations_with_replacement(ops, 2)
-    with Pool() as p:
-        p.starmap(mut.distance, jobs)
 
 # Running clustering on `ops` starting with `seeds`
 def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: Memoizer) -> list[OrderParameter]:
@@ -405,6 +398,7 @@ def find_ops(all_ops: list[OrderParameter],
         
     """
     
+    # selecting bandwidth
     if bandwidth == None:
         if kernel == 'parabolic':
             kernel = 'epanechnikov'
@@ -422,19 +416,19 @@ def find_ops(all_ops: list[OrderParameter],
         bandwidth = bw_constant*n**(-1/6)
         print('Selected bandwidth: ' + str(bandwidth)+ '\n')
 
-    mut = Memoizer(bins, bandwidth, kernel, weights)
-
-    num_array = np.arange(1, max_outputs + 1)[::-1]
-    distortion_array = np.zeros_like(num_array)
-    selected_op = {}
-
+    # selecting bins
     if bins == None:
         bins = np.ceil(np.sqrt(len(all_ops[0].traj)))
         print(f"Using {bins} bins for KDE.")
 
     start = timer()
-    initialize_dm(all_ops, mut)
+    mut = Memoizer(bins, bandwidth, kernel, weights)
+    mut.initialize_distances(all_ops)
     print(f"DM construction time: {timer()-start:.2f} s")
+
+    num_array = np.arange(1, max_outputs + 1)[::-1]
+    distortion_array = np.zeros_like(num_array)
+    selected_op = {}
 
     # This loops through each number of clusters
     for f, n in enumerate(num_array):
@@ -452,7 +446,7 @@ def find_ops(all_ops: list[OrderParameter],
         # Clustering
         selected_op[n] = cluster(all_ops, matrix.OPs, mut)
 
-        distortion_array[f] = distortion(selected_op[n], all_ops, mut)
+        distortion_array[f] = mut.distortion(selected_op[n], all_ops)
 
     # Determining number of clusters
     num_ops = 0

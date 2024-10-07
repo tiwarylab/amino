@@ -3,6 +3,8 @@ import numpy as np
 
 dat = np.loadtxt("data/BOUND_COLVAR").T
 ops = [amino.OrderParameter(f"test_OP_{i}", d) for i, d in enumerate(dat)]
+memo = amino.DistanceMatrix(50, 0.02, "epanechnikov")
+memo.initialize_distances(ops)
 OP_1 = ops[0]
 OP_2 = ops[1]
 
@@ -19,7 +21,7 @@ def test_distance_1():
     '''
     Test the distance between an order parameter and itself
     '''
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
+
     self_dist = memo.distance(OP_1, OP_1)
 
     assert equal(self_dist, 0)
@@ -29,7 +31,6 @@ def test_distance_2():
     Test the distance between two order parameters to known value
     '''
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     dist = memo.distance(OP_1, OP_2)
 
     assert equal(dist, 0.5353485087893664)
@@ -40,7 +41,6 @@ def test_distance_3():
     Test the distance cache mechanism
     '''
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     dist = memo.distance(OP_1, OP_2)
     dist_same_order = memo.distance(OP_1, OP_2)
     dist_reverse_order = memo.distance(OP_1, OP_2)
@@ -53,7 +53,6 @@ def test_add_op_1():
     Test adding OPs
     '''
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     mat = amino.DissimilarityMatrix(2, memo)
 
     mat.add_OP(OP_1)
@@ -64,7 +63,6 @@ def test_add_op_2():
     Test adding OPs, basic symmetry
     '''
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     mat = amino.DissimilarityMatrix(2, memo)
 
     mat.add_OP(OP_1)
@@ -82,7 +80,6 @@ def test_add_op_3():
     Test adding OPs to 2x2 matrix, adding the same coordinate twice
     '''
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     mat = amino.DissimilarityMatrix(2, memo)
 
     mat.add_OP(OP_1)
@@ -92,7 +89,6 @@ def test_add_op_3():
 
 def test_add_op_4():
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
     mat = amino.DissimilarityMatrix(2, memo)
 
     mat.add_OP(OP_1)
@@ -105,8 +101,5 @@ def test_add_op_4():
 
 def test_initialization():
 
-    memo = amino.Memoizer(50, 0.02, "epanechnikov")
-    memo.initialize_distances(ops)
-    
-    assert equal(memo._distance_kernel(ops[0], ops[1]), 0.5353485087893664)
+    assert equal(memo._distance_kernel(0, 1), 0.5353485087893664)
     assert equal(memo.distance(ops[0], ops[1]), 0.5353485087893664)

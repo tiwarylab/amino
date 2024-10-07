@@ -12,14 +12,12 @@ https://doi.org/10.1039/C9ME00115H
 import numpy as np
 from sklearn.neighbors import KernelDensity
 from numpy.typing import ArrayLike
-from numba import njit
 import multiprocessing as mp
 from itertools import combinations_with_replacement
 
 from timeit import default_timer as timer
 
 
-@njit(parallel=True)
 def product_without_self(arr: np.array) -> np.array:
 
     # Compute the prefix products
@@ -65,7 +63,7 @@ class OrderParameter:
 
 
 # Memoizes distance computation between OP's to prevent re-calculations
-class Memoizer:
+class DistanceMatrix:
     """Memoizes distance computation between OP's to prevent re-calculations.
 
     Attributes
@@ -82,11 +80,12 @@ class Memoizer:
 
     """
 
-    def __init__(self, bins: int, bandwidth: float, kernel: str):
+    def __init__(self, bins: int, bandwidth: float, kernel: str, weights: ArrayLike = None):
         self.memo = {}
         self.bins = bins
         self.bandwidth = bandwidth
         self.kernel = kernel
+        self.weights = weights
 
     def initialize_distances(self, ops: list[OrderParameter]) -> None:
 
@@ -120,7 +119,7 @@ class Memoizer:
         """
 
         KD = KernelDensity(bandwidth=self.bandwidth, kernel=self.kernel)
-        KD.fit(np.column_stack((x, y)))
+        KD.fit(np.column_stack((x, y)), sample_weight=self.weights)
 
         grid1 = np.linspace(np.min(x), np.max(x), self.bins)
         grid2 = np.linspace(np.min(y), np.max(y), self.bins)
@@ -160,9 +159,10 @@ class Memoizer:
 
         return d
 
-    def _distance_kernel(self, i, j) -> float:
+    def _distance_kernel(self, i: int, j: int) -> float:
         '''
-        Calculates the mutual information distance given the joint distribution.
+        Calculates the mutual information distance between the i-th and j-th OP,
+        given the joint distribution.
         '''
 
         p_xy = self._d2_bin(self.ops[i].traj, self.ops[j].traj)
@@ -216,12 +216,12 @@ class DissimilarityMatrix:
     size : int
         Maximum number of OPs contained.
 
-    mut : Memoizer
-        The Memoizer used for distance calculation and storage.
+    mut : DistanceMatrix
+        The DistanceMatrix used for distance calculation and storage.
     """
 
     # Initializes DM based on size
-    def __init__(self, size: int, mut: Memoizer):
+    def __init__(self, size: int, mut: DistanceMatrix):
         self.size = size
         self.matrix = np.zeros((size, size))
         self.mut = mut
@@ -286,7 +286,7 @@ class DissimilarityMatrix:
 
 
 # Running clustering on `ops` starting with `seeds`
-def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: Memoizer) -> list[OrderParameter]:
+def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: DistanceMatrix) -> list[OrderParameter]:
     """Clusters OPs startng with centroids from a DissimilarityMatrix.
 
     Parameters
@@ -297,8 +297,8 @@ def cluster(ops: list[OrderParameter], seeds: list[OrderParameter], mut: Memoize
     seeds : list of OrderParameters
         Starting centroids from a DissimilarityMatrix.
 
-    mut : Memoizer
-        The Memoizer used for distance calculation and storage.
+    mut : DistanceMatrix
+        The DistanceMatrix used for distance calculation and storage.
 
     Returns
     -------
@@ -349,6 +349,7 @@ def find_ops(all_ops: list[OrderParameter],
              bandwidth: float = None,
              kernel: str = 'epanechnikov',
              distortion_filename: str = None,
+             weights: ArrayLike = None,
              verbose: bool = True) -> list[OrderParameter]:
     """Main function performing clustering and finding the optimal number of OPs.
 
@@ -405,7 +406,7 @@ def find_ops(all_ops: list[OrderParameter],
         print(f"Using {bins} bins for KDE.")
 
     start = timer()
-    mut = Memoizer(bins, bandwidth, kernel)
+    mut = DistanceMatrix(bins, bandwidth, kernel, weights)
     mut.initialize_distances(all_ops)
     print(f"DM construction time: {timer()-start:.2f} s")
 

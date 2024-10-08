@@ -14,19 +14,26 @@ Of the provided applications, this is the most similar to a practical use of AMI
 
 ## amino.py
 
-This is the serial, kernel density estimation Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.
+This is the kernel density estimation Python 3 implementation of AMINO. You should import this into your own projects when you want to use it on your own system.
 
 ## reproducibility/
 
 This directory contains the histogram-based Python 3 implementation of AMINO which is used in the original paper. This version is no longer recommended but remains available for reproducibility.
 
-## amino_output.py
+## amino_cli.py
 
 Usage:
 
+Command line:
 ```bash
 python amino_cli.py <COLVAR> --n <num> --bins <bins>
 python amino_cli.py --help
+```
+
+Python or notebook:
+```python
+import amino_cli
+amino_cli.main("<COLVAR>", n=20)
 ```
 
 `<COLVAR>` is a mandatory argument providing the name of the COLVAR file that you want to reduce. 
@@ -36,7 +43,3 @@ The `--n` option can be used to specify a maximum number of order parameters in 
 The `--bins` option specifies how many bins are used when calculating the mutual information and entropy. Default value is 50.
 
 The output contains the names of the order parameters (as they were named in the COLVAR) that AMINO has selected. The output is printed to the command line.
-
-
-## TODO:
-Improve performance through more modern ways of parallization, like numba.

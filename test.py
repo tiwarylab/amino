@@ -8,8 +8,6 @@ memo.initialize_distances(ops)
 OP_1 = ops[0]
 OP_2 = ops[1]
 
-def equal(a, b):
-    return abs(a - b) < 1e-10
 
 def test_load_data():
     '''
@@ -24,7 +22,7 @@ def test_distance_1():
 
     self_dist = memo.distance(OP_1, OP_1)
 
-    assert equal(self_dist, 0)
+    assert np.isclose(self_dist, 0)
 
 def test_distance_2():
     '''
@@ -33,7 +31,7 @@ def test_distance_2():
 
     dist = memo.distance(OP_1, OP_2)
 
-    assert equal(dist, 0.5353485087893664)
+    assert np.isclose(dist, 0.5353485087893664)
 
 
 def test_distance_3():
@@ -45,8 +43,8 @@ def test_distance_3():
     dist_same_order = memo.distance(OP_1, OP_2)
     dist_reverse_order = memo.distance(OP_1, OP_2)
 
-    assert equal(dist, dist_same_order)
-    assert equal(dist, dist_reverse_order)
+    assert np.isclose(dist, dist_same_order)
+    assert np.isclose(dist, dist_reverse_order)
 
 def test_add_op_1():
     '''
@@ -56,7 +54,7 @@ def test_add_op_1():
     mat = amino.DissimilarityMatrix(2, memo)
 
     mat.add_OP(OP_1)
-    assert equal(mat.matrix[0][0], 0)
+    assert np.isclose(mat.matrix[0][0], 0)
 
 def test_add_op_2():
     '''
@@ -70,10 +68,10 @@ def test_add_op_2():
 
     dis_matrix = np.array(mat.matrix)
 
-    assert equal(dis_matrix[1,0], dis_matrix[0,1])
-    assert equal(dis_matrix[1,0], 0.5353485087893664)
-    assert equal(dis_matrix[0,0], 0)
-    assert equal(dis_matrix[1,1], 0)
+    assert np.isclose(dis_matrix[1,0], dis_matrix[0,1])
+    assert np.isclose(dis_matrix[1,0], 0.5353485087893664)
+    assert np.isclose(dis_matrix[0,0], 0)
+    assert np.isclose(dis_matrix[1,1], 0)
 
 def test_add_op_3():
     '''
@@ -85,7 +83,7 @@ def test_add_op_3():
     mat.add_OP(OP_1)
     mat.add_OP(OP_1)
 
-    assert np.array_equal(mat.matrix, [[0, 0], [0, 0]])
+    assert np.allclose(mat.matrix, [[0, 0], [0, 0]])
 
 def test_add_op_4():
 
@@ -97,9 +95,9 @@ def test_add_op_4():
 
     dis_matrix = np.array(mat.matrix)
 
-    assert np.array_equal(dis_matrix, [[0, 0.5353485087893664], [0.5353485087893664, 0]])
+    assert np.allclose(dis_matrix, [[0, 0.5353485087893664], [0.5353485087893664, 0]])
 
 def test_initialization():
 
-    assert equal(memo._distance_kernel(0, 1), 0.5353485087893664)
-    assert equal(memo.distance(ops[0], ops[1]), 0.5353485087893664)
+    assert np.isclose(memo._distance_kernel(0, 1), 0.5353485087893664)
+    assert np.isclose(memo.distance(ops[0], ops[1]), 0.5353485087893664)
